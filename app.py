@@ -43,6 +43,14 @@ class Review(db.Model):
     rating = db.Column(db.Integer, nullable=False)
 
 
+# Создаём таблицы и заполняем базу при первом запуске
+with app.app_context():
+    db.create_all()
+    if School.query.count() == 0:
+        from seed import seed
+        seed()
+
+
 @app.route('/')
 def index():
     return app.send_static_file('index.html')

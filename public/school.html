@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADA Ratings — School</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── School Hero ── */
+    .school-hero {
+      position: relative;
+      height: 340px;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+    }
+    .school-hero-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    .school-hero-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(37,71,88,0.85) 0%, rgba(37,71,88,0.2) 60%, transparent 100%);
+    }
+    .school-hero-content {
+      position: relative;
+      z-index: 1;
+      padding: 32px 40px;
+      color: #fff;
+    }
+    .school-hero-content .back-link {
+      color: rgba(255,255,255,0.85);
+      margin-bottom: 14px;
+      font-size: 0.9rem;
+    }
+    .school-hero-content .back-link:hover { color: #fff; }
+    .school-hero-content h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      margin: 0 0 6px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .school-hero-content .school-full-name {
+      font-size: 1.05rem;
+      opacity: 0.9;
+      margin: 0;
+    }
+
+    /* ── Dean Section ── */
+    .dean-section {
+      background: #f4f7f6;
+      padding: 64px 24px;
+      text-align: center;
+    }
+    .dean-section-inner {
+      max-width: 780px;
+      margin: 0 auto;
+    }
+    .dean-photo-wrap {
+      margin: 0 auto 28px auto;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 4px solid #fff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    .dean-photo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .dean-quote {
+      font-size: 1.1rem;
+      line-height: 1.75;
+      color: #333;
+      font-style: italic;
+      margin: 0 0 28px 0;
+      position: relative;
+      padding: 0 20px;
+    }
+    .dean-quote::before {
+      content: "\201C";
+      font-size: 3rem;
+      color: var(--pomegranate);
+      line-height: 0;
+      vertical-align: -0.5em;
+      margin-right: 4px;
+    }
+    .dean-quote::after {
+      content: "\201D";
+      font-size: 3rem;
+      color: var(--pomegranate);
+      line-height: 0;
+      vertical-align: -0.5em;
+      margin-left: 4px;
+    }
+    .dean-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--caspian-blue);
+      margin: 0 0 4px 0;
+    }
+    .dean-title-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Professors Section ── */
+    .professors-section {
+      position: relative;
+      padding: 60px 0 80px 0;
+      overflow: hidden;
+    }
+    .professors-section::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(244,247,246,0.88), rgba(244,247,246,0.93)),
+        url('/ada_campus.jpg') center/cover no-repeat fixed;
+      z-index: 0;
+    }
+    .professors-section .container {
+      position: relative;
+      z-index: 1;
+    }
+    .professors-section .page-title {
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 36px;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="/" class="brand">
+        <img src="/ada_logo.svg" alt="ADA" class="brand-logo">
+        <span>ADA Ratings</span>
+      </a>
+      <a href="https://www.ada.edu.az" target="_blank" rel="noopener" class="header-link">ADA University</a>
+    </div>
+  </header>
+
+  <!-- Hero with school photo -->
+  <div class="school-hero" id="school-hero">
+    <img class="school-hero-img" id="hero-img" src="/ada_campus2.jpg" alt="School">
+    <div class="school-hero-overlay"></div>
+    <div class="school-hero-content">
+      <a href="/" class="back-link">&larr; All schools</a>
+      <h1 id="school-code-title">Loading…</h1>
+      <p class="school-full-name" id="school-full-name"></p>
+    </div>
+  </div>
+
+  <!-- Dean quote section -->
+  <div class="dean-section" id="dean-section" style="display:none">
+    <div class="dean-section-inner">
+      <div class="dean-photo-wrap">
+        <img id="dean-photo" src="" alt="Dean">
+      </div>
+      <p class="dean-quote" id="dean-quote"></p>
+      <p class="dean-name" id="dean-name"></p>
+      <p class="dean-title-text" id="dean-title"></p>
+    </div>
+  </div>
+
+  <!-- Professors grid -->
+  <section class="professors-section">
+    <div class="container">
+      <h2 class="page-title">Our Faculty</h2>
+      <div id="prof-grid" class="prof-grid">
+        <div class="loading">Loading professors…</div>
+      </div>
+    </div>
+  </section>
+
+  <script src="script.js"></script>
+  <script>
+    const SCHOOL_NAMES = {
+      SPIA: 'School of Public and International Affairs',
+      SITE: 'School of IT and Engineering',
+      SB:   'School of Business',
+      LAW:  'School of Law',
+      SAFS: 'School of Agricultural and Food Sciences',
+      SDA:  'School of Design and Architecture'
+    };
+
+    const SCHOOL_PHOTOS = {
+      SPIA: '/spia_main_photo.jpg',
+      LAW:  '/spia_law_main_photo.jpg',
+      SB:   '/sb_main_photo.jpg',
+      SITE: '/site_main_photo.jpg',
+      SAFS: '/safs_main_photo.jpeg',
+      SDA:  '/ada_campus2.jpg'
+    };
+
+    const DEAN_DATA = {
+      SPIA: {
+        name: 'Azer Babayev',
+        title: 'Dean, School of Public and International Affairs',
+        image: 'https://www.ada.edu.az/media/2024/12/19/1to1_medium/azer_babayev_1_.jpg',
+        quote: 'For quality teaching and research, the cultural value of education should come before its material or social value. When valued in this way, education will inspire lifelong intellectual curiosity and wonder in students, enabling them to learn and appreciate knowledge as the universal currency of education and, ultimately, as an end in itself.'
+      },
+      SB: {
+        name: 'Huseyn Ismayilov',
+        title: 'Dean, School of Business',
+        image: 'https://www.ada.edu.az/media/2024/05/31/1to1_medium/huseyn_ismayilov.jpg',
+        quote: 'At ADA School of Business, our goal is to equip students with the knowledge and skills required to succeed professionally anywhere in the world.'
+      },
+      SITE: {
+        name: 'Abzatdin Adamov',
+        title: 'Dean, School of IT and Engineering',
+        image: 'https://www.ada.edu.az/media/2024/05/31/1to1_medium/abzatdin_adamov.jpg',
+        quote: 'To be the next World changers, engineering students must grasp certain fundamental knowledge in their primary field understanding essential concepts and how they work together. When the next Big Thing comes, it will not be just a buzzword to chase — instead they will understand all technical implications behind and its real value.'
+      },
+      LAW: {
+        name: 'Rashad Ibadov',
+        title: 'Dean, School of Law',
+        image: 'https://www.ada.edu.az/media/2024/06/07/1to1_medium/rashad_i.jpeg',
+        quote: 'Education offered at ADA University is not only aimed at providing students with those capacities, which will enable them to be masters of their fate and to think critically about any permissible conceptions of the good, but also introducing them to civic virtues, which will lead them to be good citizens.'
+      },
+      SAFS: {
+        name: 'Matteo Vittuari',
+        title: 'Dean, School of Agricultural and Food Sciences',
+        image: 'https://www.ada.edu.az/media/2025/11/20/1to1_medium/matteo_vittuari-1.jpg',
+        quote: 'ADA University School of Agricultural and Food Sciences embraces a food system lens to agricultural production and food consumption to run research and educate future generations of professionals, entrepreneurs and public officers inspired by the passion for knowledge, technology and innovation.'
+      },
+      SDA: {
+        name: 'Silvia Ferraris',
+        title: 'Dean, School of Design & Architecture',
+        image: 'https://www.ada.edu.az/media/2025/07/28/img_0506-1.jpeg',
+        quote: 'Design, architecture, and urban planning are at the heart of a country\'s strategic development. They participate in constructing and valorizing what is and will be. Mixing technology, creativity, science, and vision, they shape the inhabited environment and the quality of life of today and tomorrow.'
+      }
+    };
+
+    async function loadSchoolPage() {
+      const code = getQueryParam('code');
+      if (!code) {
+        document.getElementById('school-code-title').innerText = 'School not specified';
+        showError('prof-grid', 'Missing school code in URL.');
+        return;
+      }
+
+      // Set hero
+      document.getElementById('school-code-title').innerText = code;
+      document.getElementById('school-full-name').innerText = SCHOOL_NAMES[code] || '';
+      document.title = `ADA Ratings — ${code}`;
+
+      if (SCHOOL_PHOTOS[code]) {
+        document.getElementById('hero-img').src = SCHOOL_PHOTOS[code];
+      }
+
+      // Set dean section
+      const dean = DEAN_DATA[code];
+      if (dean) {
+        document.getElementById('dean-section').style.display = '';
+        document.getElementById('dean-photo').src = dean.image;
+        document.getElementById('dean-photo').alt = dean.name;
+        document.getElementById('dean-quote').innerText = dean.quote;
+        document.getElementById('dean-name').innerText = dean.name;
+        document.getElementById('dean-title').innerText = dean.title;
+      }
+
+      // Load professors
+      try {
+        const res = await fetch(`/api/professors?school=${encodeURIComponent(code)}`);
+        if (!res.ok) throw new Error('Request failed');
+        const profs = await res.json();
+
+        const grid = document.getElementById('prof-grid');
+
+        if (!profs.length) {
+          grid.innerHTML = '<div class="error-box">No professors listed for this school yet.</div>';
+          return;
+        }
+
+        grid.innerHTML = profs.map(p => `
+          <a href="professor.html?id=${p.id}" class="prof-card">
+            <img
+              class="prof-photo"
+              src="${escapeHtml(p.image_url || fallbackAvatar(p.name))}"
+              alt="${escapeHtml(p.name)}"
+              onerror="this.onerror=null;this.src='${fallbackAvatar(p.name)}'"
+            >
+            <div class="prof-name">${escapeHtml(p.name)}</div>
+            <div class="prof-title">${escapeHtml(p.title || '')}</div>
+            <div class="prof-specialization">${escapeHtml(p.specialization || '')}</div>
+            <div class="prof-footer">
+              ${renderRatingBadge(p.avg_rating, 'small')}
+              <span class="review-count">${p.review_count} review${p.review_count === 1 ? '' : 's'}</span>
+            </div>
+          </a>
+        `).join('');
+      } catch (err) {
+        showError('prof-grid', 'Could not load professors. Is the server running?');
+      }
+    }
+
+    loadSchoolPage();
+  </script>
+</body>
+</html>

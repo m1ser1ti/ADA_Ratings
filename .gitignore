@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Flask / SQLite
+instance/
+*.db
+ada_ratings.db
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp

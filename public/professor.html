@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADA Ratings — Professor</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Campus background for professor page */
+    .prof-page-bg {
+      position: relative;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    .prof-page-bg::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        linear-gradient(rgba(244, 247, 246, 0.92), rgba(244, 247, 246, 0.95)),
+        url('/ada_campus2.jpg') center/cover no-repeat;
+      z-index: -1;
+    }
+  </style>
+</head>
+<body style="background: linear-gradient(rgba(244,247,246,0.78), rgba(244,247,246,0.82)), url('/ada_campus2.jpg') center/cover fixed; background-attachment: fixed;"></body>
+
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="/" class="brand">
+        <img src="/ada_logo.svg" alt="ADA" class="brand-logo">
+        <span>ADA Ratings</span>
+      </a>
+      <a href="https://www.ada.edu.az" target="_blank" rel="noopener" class="header-link">ADA University</a>
+    </div>
+  </header>
+
+  <div class="prof-page-bg">
+    <main class="container">
+      <a href="javascript:history.back()" class="back-link">&larr; Back</a>
+
+      <div id="professor-content">
+        <div class="loading">Loading professor…</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    const profId = getQueryParam('id');
+    let currentProf = null;
+
+    async function loadProfessor() {
+      if (!profId) {
+        showError('professor-content', 'Missing professor id in URL.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/professors/${encodeURIComponent(profId)}`);
+        if (res.status === 404) {
+          showError('professor-content', 'Professor not found.');
+          return;
+        }
+        if (!res.ok) throw new Error('Request failed');
+        const prof = await res.json();
+        currentProf = prof;
+        renderProfessor(prof);
+      } catch (err) {
+        showError('professor-content', 'Could not load professor. Is the server running?');
+      }
+    }
+
+    function renderProfessor(p) {
+      const reviewsHtml = (p.reviews && p.reviews.length)
+        ? [...p.reviews].reverse().map(r => `
+            <div class="review-item">
+              ${renderRatingBadge(r.rating, 'small')}
+              <p class="review-text">${escapeHtml(r.text)}</p>
+            </div>
+          `).join('')
+        : '<div class="no-reviews">No reviews yet. Be the first to share your experience!</div>';
+
+      document.getElementById('professor-content').innerHTML = `
+        <div class="prof-header">
+          <img
+            class="prof-photo-large"
+            src="${escapeHtml(p.image_url || fallbackAvatar(p.name))}"
+            alt="${escapeHtml(p.name)}"
+            onerror="this.onerror=null;this.src='${fallbackAvatar(p.name)}'"
+          >
+          <div class="prof-info">
+            <h1>${escapeHtml(p.name)}</h1>
+            <p class="info-title">${escapeHtml(p.title || '')}</p>
+            <p class="info-spec">${escapeHtml(p.specialization || '')}</p>
+            <span class="school-tag">${escapeHtml(p.school)}</span>
+            ${p.profile_url
+              ? `<div><a href="${escapeHtml(p.profile_url)}" target="_blank" rel="noopener" class="profile-link">View official profile &rarr;</a></div>`
+              : ''}
+          </div>
+          <div class="prof-rating-col">
+            ${renderRatingBadge(p.avg_rating, 'large')}
+            <div class="label">${p.review_count} review${p.review_count === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+
+        <div class="card-panel">
+          <h2>Leave a review</h2>
+          <form id="review-form">
+            <div class="form-row">
+              <label class="form-label" for="rating-slider">Rating</label>
+              <div class="rating-input-row">
+                <input type="range" id="rating-slider" min="1" max="10" value="7" step="1">
+                <span id="rating-value-display">7</span>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <label class="form-label" for="review-text">Your review</label>
+              <textarea
+                id="review-text"
+                placeholder="Share what you liked, teaching style, workload, anything future students should know…"
+                maxlength="5000"
+              ></textarea>
+              <div id="char-counter" class="char-counter">0 / 5000</div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submit-btn">Submit review</button>
+            <div id="form-message" class="form-message"></div>
+          </form>
+        </div>
+
+        <h2 class="page-title" style="font-size: 1.4rem;">Reviews</h2>
+        <div id="reviews-list">${reviewsHtml}</div>
+      `;
+
+      attachFormHandlers();
+    }
+
+    function attachFormHandlers() {
+      const slider = document.getElementById('rating-slider');
+      const display = document.getElementById('rating-value-display');
+      const textarea = document.getElementById('review-text');
+      const counter = document.getElementById('char-counter');
+      const form = document.getElementById('review-form');
+      const btn = document.getElementById('submit-btn');
+
+      slider.addEventListener('input', () => {
+        display.innerText = slider.value;
+      });
+
+      textarea.addEventListener('input', () => {
+        const len = textarea.value.length;
+        counter.innerText = `${len} / 5000`;
+        counter.classList.toggle('over', len > 5000);
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msg = document.getElementById('form-message');
+        msg.className = 'form-message';
+        msg.innerText = '';
+
+        const text = textarea.value.trim();
+        const rating = parseInt(slider.value, 10);
+
+        if (!text) {
+          showFormMessage('error', 'Please write a review before submitting.');
+          return;
+        }
+        if (text.length > 5000) {
+          showFormMessage('error', 'Review is too long (max 5000 characters).');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = 'Submitting…';
+
+        try {
+          const res = await fetch('/api/reviews', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              professor_id: parseInt(profId, 10),
+              text: text,
+              rating: rating
+            })
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            showFormMessage('error', data.error || 'Could not submit review.');
+            return;
+          }
+
+          showFormMessage('success', 'Thanks! Your review was added.');
+          textarea.value = '';
+          counter.innerText = '0 / 5000';
+          slider.value = 7;
+          display.innerText = 7;
+          setTimeout(loadProfessor, 800);
+        } catch (err) {
+          showFormMessage('error', 'Network error. Please try again.');
+        } finally {
+          btn.disabled = false;
+          btn.innerText = 'Submit review';
+        }
+      });
+    }
+
+    loadProfessor();
+  </script>
+</body>
+</html>

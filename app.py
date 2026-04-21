@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
+from extensions import db
 from better_profanity import profanity
 import os
 
@@ -9,7 +9,7 @@ CORS(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///ada_ratings.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+db.init_app(app)
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -46,9 +46,7 @@ class Review(db.Model):
 # Создаём таблицы и заполняем базу при первом запуске
 with app.app_context():
     db.create_all()
-    if School.query.count() == 0:
-        from seed import seed
-        seed()
+
 
 
 @app.route('/')

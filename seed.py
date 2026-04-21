@@ -1,4 +1,5 @@
 from app import app, db, School, Professor
+from extensions import db
 
 def seed():
     schools = [

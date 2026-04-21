@@ -7,16 +7,13 @@ import os
 app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)
 
-# База данных
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///ada_ratings.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 custom_bad_words = [
-    # Русские
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
     "блин", "нахуй", "пошел", "мудак", "залупа", "ублюдок",
-    # Азербайджанские
     "sik", "sikin", "amciq", "götü", "orospu", "piç", "sıçmaq"
 ]
 profanity.add_censor_words(custom_bad_words)
@@ -111,7 +108,6 @@ def get_professor(prof_id):
 def add_review():
     data = request.get_json()
 
-    
     if not data.get('professor_id'):
         return jsonify({'error': 'Professor ID is required'}), 400
     if not data.get('text') or len(data['text'].strip()) == 0:
@@ -122,8 +118,6 @@ def add_review():
         return jsonify({'error': 'Rating must be between 1 and 10'}), 400
     if len(data['text']) > 5000:
         return jsonify({'error': 'Review is too long (max 5000 characters)'}), 400
-
-   
     if profanity.contains_profanity(data['text']):
         return jsonify({'error': 'Review contains inappropriate language'}), 400
 
@@ -141,9 +135,7 @@ def add_review():
 
     return jsonify({'success': True, 'message': 'Review added successfully'}), 201
 
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-                    

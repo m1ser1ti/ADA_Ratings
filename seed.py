@@ -1,10 +1,8 @@
 from extensions import db
+from models import School, Professor
 
 
 def seed():
-    # Импортируем модели внутри функции чтобы избежать circular import
-    from app import School, Professor
-
     schools = [
         School(code='SPIA', name='School of Public and International Affairs'),
         School(code='SITE', name='School of IT and Engineering'),
@@ -176,12 +174,3 @@ def seed():
     db.session.commit()
 
     print(f"Seeded: {School.query.count()} schools, {Professor.query.count()} professors")
-
-
-if __name__ == '__main__':
-    from app import app
-    with app.app_context():
-        db.drop_all()
-        db.create_all()
-        seed()
-        print("Done!")

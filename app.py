@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from extensions import db
+from models import School, Professor, Review
 from better_profanity import profanity
 import os
 
@@ -20,30 +21,6 @@ custom_bad_words = [
     "sik", "sikin", "amciq", "götü", "orospu", "piç", "sıçmaq"
 ]
 profanity.add_censor_words(custom_bad_words)
-
-
-class School(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(20), unique=True, nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-    professors = db.relationship('Professor', backref='school', lazy=True)
-
-class Professor(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    title = db.Column(db.String(100))
-    specialization = db.Column(db.String(100))
-    bio = db.Column(db.Text)
-    image_url = db.Column(db.String(300))
-    profile_url = db.Column(db.String(300))
-    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False)
-    reviews = db.relationship('Review', backref='professor', lazy=True)
-
-class Review(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    professor_id = db.Column(db.Integer, db.ForeignKey('professor.id'), nullable=False)
-    text = db.Column(db.Text, nullable=False)
-    rating = db.Column(db.Integer, nullable=False)
 
 
 # Создаём таблицы и заполняем базу если пусто

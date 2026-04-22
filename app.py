@@ -8,7 +8,6 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)
 
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///ada_ratings.db')
-# Railway даёт postgres:// но SQLAlchemy требует postgresql://
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -47,9 +46,14 @@ class Review(db.Model):
     rating = db.Column(db.Integer, nullable=False)
 
 
-# Создаём таблицы и заполняем базу при первом запуске
+# Создаём таблицы и заполняем базу если пусто
 with app.app_context():
     db.create_all()
+    if School.query.count() == 0:
+        print("Database is empty, seeding...")
+        from seed import seed
+        seed()
+        print("Seeding complete!")
 
 
 @app.route('/')

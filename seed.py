@@ -1,7 +1,10 @@
-from app import app, db, School, Professor
 from extensions import db
 
+
 def seed():
+    # Импортируем модели внутри функции чтобы избежать circular import
+    from app import School, Professor
+
     schools = [
         School(code='SPIA', name='School of Public and International Affairs'),
         School(code='SITE', name='School of IT and Engineering'),
@@ -176,6 +179,7 @@ def seed():
 
 
 if __name__ == '__main__':
+    from app import app
     with app.app_context():
         db.drop_all()
         db.create_all()

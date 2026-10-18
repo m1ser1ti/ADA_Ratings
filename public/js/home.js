@@ -1,4 +1,6 @@
-import { api, emptyState, errorState, escapeHtml, plural, skeletons } from './common.js';
+import {
+  allProfessors, api, emptyState, errorState, escapeHtml, plural, professorCard, skeletons,
+} from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
 const grid = document.getElementById('schools-grid');
@@ -42,4 +44,31 @@ async function loadSchools() {
   }
 }
 
+const TOP_COUNT = 4;
+const TOP_MIN_RATING = 7; // Same threshold as the green "high" badge.
+
+// Social proof: the best-rated professors, shown only once there are reviews to back them.
+async function loadTopRated() {
+  const section = document.getElementById('top-rated');
+  try {
+    const rated = (await allProfessors())
+      .filter(p => p.avg_rating != null && p.avg_rating >= TOP_MIN_RATING)
+      .sort((a, b) => b.avg_rating - a.avg_rating || b.review_count - a.review_count)
+      .slice(0, TOP_COUNT);
+    if (!rated.length) return;
+    document.getElementById('top-grid').innerHTML = rated.map(professorCard).join('');
+    section.hidden = false;
+  } catch {
+    // Optional section: the page works without it.
+  }
+}
+
+document.getElementById('cta-search').addEventListener('click', event => {
+  event.preventDefault();
+  const input = document.getElementById('hero-search');
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  input.focus({ preventScroll: true });
+});
+
 loadSchools();
+loadTopRated();

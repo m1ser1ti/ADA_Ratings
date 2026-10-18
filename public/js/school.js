@@ -1,5 +1,5 @@
 import {
-  api, avatarImg, emptyState, errorState, escapeHtml, plural, queryParam, ratingBadge, skeletons,
+  api, emptyState, errorState, escapeHtml, plural, professorCard, queryParam, skeletons,
 } from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
@@ -56,23 +56,7 @@ function renderList() {
     return;
   }
 
-  grid.innerHTML = shown.map(p => `
-    <li>
-      <a class="prof-card" href="professor.html?id=${encodeURIComponent(p.id)}">
-        <div class="prof-card-top">
-          ${avatarImg(p)}
-          <div>
-            <h3>${escapeHtml(p.name)}</h3>
-            <p class="prof-title">${escapeHtml(p.title || '')}</p>
-          </div>
-        </div>
-        <p class="prof-spec">${escapeHtml(p.specialization || '')}</p>
-        <div class="prof-card-foot">
-          ${ratingBadge(p.avg_rating)}
-          <span>${plural(p.review_count, 'review')}</span>
-        </div>
-      </a>
-    </li>`).join('');
+  grid.innerHTML = shown.map(professorCard).join('');
 }
 
 async function loadProfessors() {

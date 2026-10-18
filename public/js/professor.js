@@ -1,6 +1,6 @@
 import {
   api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, plural, queryParam,
-  ratingBadge, safeUrl,
+  ratingBadge, safeUrl, starsMeter,
 } from './common.js';
 import { SCHOOLS } from './schools.js';
 
@@ -46,6 +46,7 @@ function renderSummary(p) {
     <section class="card summary" aria-labelledby="summary-title">
       <div class="summary-score">
         ${ratingBadge(p.avg_rating, 'large')}
+        <div>${starsMeter(p.avg_rating)}</div>
         <p>${total ? `based on ${plural(total, 'review')}` : 'Be the first to rate'}</p>
       </div>
       <div>
@@ -85,7 +86,11 @@ function renderForm() {
 
 function renderReviewItems(reviews) {
   if (!reviews.length) {
-    return '<li class="state"><h3>No reviews yet</h3><p>Share your experience to help other students.</p></li>';
+    return `<li class="state">
+      <h3>No reviews yet</h3>
+      <p>Took a course with this professor? Your review will be the first.</p>
+      <a class="btn btn-primary" href="#review-form">Write the first review</a>
+    </li>`;
   }
   const sorted = [...reviews].sort({
     newest: () => 0,
@@ -108,13 +113,13 @@ function renderReviews(p) {
     <section aria-labelledby="reviews-title">
       <div class="reviews-head">
         <h2 id="reviews-title">Student reviews <span class="prof-title">(${p.reviews.length})</span></h2>
-        <label class="field-inline">Sort by
+        ${p.reviews.length > 1 ? `<label class="field-inline">Sort by
           <select class="select" id="review-sort">
             <option value="newest">Newest</option>
             <option value="high">Highest rated</option>
             <option value="low">Lowest rated</option>
           </select>
-        </label>
+        </label>` : ''}
       </div>
       <ul class="review-list" id="review-list">${renderReviewItems(p.reviews)}</ul>
     </section>`;
@@ -137,7 +142,7 @@ function render() {
     </div>`;
   root.removeAttribute('aria-busy');
   bindForm();
-  document.getElementById('review-sort').addEventListener('change', event => {
+  document.getElementById('review-sort')?.addEventListener('change', event => {
     reviewSort = event.target.value;
     document.getElementById('review-list').innerHTML = renderReviewItems(professor.reviews);
   });

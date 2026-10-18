@@ -103,6 +103,31 @@ export function ratingBadge(rating, size = '') {
   return `<span class="rating-badge ${ratingClass(rating)} ${size}" aria-label="Rated ${value} out of 10">${value}<small>/10</small></span>`;
 }
 
+export function starsMeter(rating) {
+  const pct = rating == null ? 0 : Math.max(0, Math.min(100, rating * 10));
+  return `<span class="stars" style="--pct:${pct}%" aria-hidden="true"></span>`;
+}
+
+export function professorCard(p) {
+  return `
+    <li>
+      <a class="prof-card" href="professor.html?id=${encodeURIComponent(p.id)}">
+        <div class="prof-card-top">
+          ${avatarImg(p)}
+          <div>
+            <h3>${escapeHtml(p.name)}</h3>
+            <p class="prof-title">${escapeHtml(p.title || '')}</p>
+          </div>
+        </div>
+        <p class="prof-spec">${escapeHtml(p.specialization || '')}</p>
+        <div class="prof-card-foot">
+          ${ratingBadge(p.avg_rating)}
+          <span>${plural(p.review_count, 'review')}</span>
+        </div>
+      </a>
+    </li>`;
+}
+
 export function formatDate(iso) {
   if (!iso) return '';
   const date = new Date(iso);

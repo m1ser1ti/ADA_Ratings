@@ -307,5 +307,59 @@ export function setupSearch(root) {
   });
 }
 
+// ---------- Theme toggle ----------
+// Cycles system -> light -> dark. js/theme-init.js applies the saved choice before first paint.
+
+const THEME_KEY = 'ada-ratings:theme';
+const THEMES = ['system', 'light', 'dark'];
+const THEME_LABELS = { system: 'System theme', light: 'Light theme', dark: 'Dark theme' };
+const THEME_BAR = { light: '#ffffff', dark: '#0b1220' };
+const THEME_ICONS = {
+  system: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  dark: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+};
+
+function currentTheme() {
+  const theme = document.documentElement.dataset.theme;
+  return theme === 'light' || theme === 'dark' ? theme : 'system';
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'system') delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  try {
+    if (theme === 'system') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
+  } catch { /* storage blocked: the choice lasts for this page only */ }
+  // The browser bar colour follows an explicit choice; "system" restores each meta's own colour.
+  document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
+    if (!meta.dataset.systemColor) meta.dataset.systemColor = meta.content;
+    meta.content = theme === 'system' ? meta.dataset.systemColor : THEME_BAR[theme];
+  });
+}
+
+function setupThemeToggle(nav) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'theme-toggle';
+  const render = () => {
+    const theme = currentTheme();
+    const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${THEME_ICONS[theme]}</svg>`;
+    button.setAttribute('aria-label', `${THEME_LABELS[theme]}. Switch to ${THEME_LABELS[next].toLowerCase()}`);
+    button.title = `${THEME_LABELS[theme]} (click for ${THEME_LABELS[next].toLowerCase()})`;
+  };
+  button.addEventListener('click', () => {
+    applyTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
+    render();
+  });
+  render();
+  if (currentTheme() !== 'system') applyTheme(currentTheme()); // sync the browser bar colour
+  nav.append(button);
+}
+
+document.querySelectorAll('.header-nav').forEach(setupThemeToggle);
 document.querySelectorAll('.search').forEach(setupSearch);
 document.querySelectorAll('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });

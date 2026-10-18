@@ -73,9 +73,13 @@
 
 :root { color-scheme: light dark; }
 
-/* Dark theme follows the visitor's system setting. Every pair keeps WCAG AA contrast. */
+/* Dark theme: follows the system setting unless the visitor picked a theme with the header
+   button (data-theme on <html>, set before first paint by js/theme-init.js). */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --navy-50: #17253f;
     --navy-600: #7f9fd6;
     --gold-600: #e0b74a;
@@ -114,18 +118,63 @@
     --shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 20px 32px -8px rgba(0, 0, 0, 0.55), 0 6px 12px -4px rgba(0, 0, 0, 0.35);
   }
-
   /* The official logo keeps its own colours, so it sits on a light tile here. */
-  .brand-logo { background: #fff; border-radius: 6px; padding: 3px 6px; box-sizing: content-box; }
-
+:root:not([data-theme="light"]) .brand-logo { background: #fff; border-radius: 6px; padding: 3px 6px; box-sizing: content-box; }
   /* Big score numbers are coloured text, so they need lighter tones on a dark card. */
-  .rating-badge.large.r-high { color: #47cd89; }
-  .rating-badge.large.r-mid { color: #f79f5b; }
-  .rating-badge.large.r-low { color: #f97066; }
-
+:root:not([data-theme="light"]) .rating-badge.large.r-high { color: #47cd89; }
+  :root:not([data-theme="light"]) .rating-badge.large.r-mid { color: #f79f5b; }
+  :root:not([data-theme="light"]) .rating-badge.large.r-low { color: #f97066; }
   /* Photos read a little bright against a dark page. */
-  .school-card-media img, .hero-visual img { filter: brightness(0.92); }
+:root:not([data-theme="light"]) .school-card-media img, :root:not([data-theme="light"]) .hero-visual img { filter: brightness(0.92); }
 }
+
+:root[data-theme="dark"] {
+    --navy-50: #17253f;
+    --navy-600: #7f9fd6;
+    --gold-600: #e0b74a;
+    --gold-700: #e8c565;
+    --gold-50: #2a2312;
+
+    --bg: #0b1220;
+    --bg-subtle: #0f1829;
+    --surface: #121c2e;
+    --surface-2: #1a2538;
+    --border: #263349;
+    --border-strong: #33415a;
+    --border-input: #6b7a94;
+    --text: #e6eaf2;
+    --text-muted: #a7b1c2;
+    --text-subtle: #8792a6;
+    --link: #9db8e8;
+
+    --ink: #dbe5f5;
+    --ink-soft: #b9c9e6;
+    --accent: #8fb0e8;
+    --accent-hover: #a9c3ee;
+    --on-accent: #06142e;
+    --header-bg: rgba(11, 18, 32, 0.85);
+
+    --r-none: #8792a6;
+    --success-bg: #0f2a1d;
+    --success-text: #75e0a7;
+    --error-bg: #2a1418;
+    --error-border: #5c2329;
+    --error-text: #fda29b;
+    --focus: #6b9bff;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 20px 32px -8px rgba(0, 0, 0, 0.55), 0 6px 12px -4px rgba(0, 0, 0, 0.35);
+  }
+/* The official logo keeps its own colours, so it sits on a light tile here. */
+:root[data-theme="dark"] .brand-logo { background: #fff; border-radius: 6px; padding: 3px 6px; box-sizing: content-box; }
+/* Big score numbers are coloured text, so they need lighter tones on a dark card. */
+:root[data-theme="dark"] .rating-badge.large.r-high { color: #47cd89; }
+:root[data-theme="dark"] .rating-badge.large.r-mid { color: #f79f5b; }
+:root[data-theme="dark"] .rating-badge.large.r-low { color: #f97066; }
+/* Photos read a little bright against a dark page. */
+:root[data-theme="dark"] .school-card-media img, :root[data-theme="dark"] .hero-visual img { filter: brightness(0.92); }
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -261,6 +310,22 @@ p { margin: 0; text-wrap: pretty; }
 }
 .header-link:hover { color: var(--ink); background: var(--surface-2); }
 .header-link svg { width: 14px; height: 14px; opacity: 0.7; }
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 40px; height: 40px;
+  margin-left: 4px;
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.theme-toggle:hover { color: var(--ink); background: var(--surface-2); border-color: var(--border-strong); }
+.theme-toggle svg { width: 18px; height: 18px; }
+
 .header-link--cta {
   margin-left: 6px;
   color: var(--on-accent);

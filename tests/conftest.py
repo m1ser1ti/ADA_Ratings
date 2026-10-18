@@ -18,6 +18,7 @@ def app():
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': 'sqlite://',
         'SEED_IF_EMPTY': False,
+        'SYNC_FACULTY': False,
     })
     with app.app_context():
         school = School(code='SITE', name='School of IT and Engineering')

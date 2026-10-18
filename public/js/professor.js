@@ -81,6 +81,7 @@ function renderProfile(p) {
       ${avatarImg(p, 'avatar', `Photo of ${p.name}`)}
       <h1 id="prof-name">${escapeHtml(p.name)}</h1>
       <p class="prof-title">${escapeHtml(p.title || '')}</p>
+      ${p.active === false ? '<p class="prof-inactive">No longer listed on the ADA University website. Reviews stay for reference.</p>' : ''}
       <dl>
         <div><dt>School</dt><dd><a href="${schoolUrl(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></dd></div>
         ${p.specialization ? `<div><dt>Specialization</dt><dd>${escapeHtml(p.specialization)}</dd></div>` : ''}

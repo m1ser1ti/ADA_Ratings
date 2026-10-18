@@ -269,9 +269,14 @@ def upgrade_schema():
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
+        professor_columns = {c['name'] for c in inspect(db.engine).get_columns('professor')}
+        if 'active' not in professor_columns:
+            log.info('Adding professor.active')
+            conn.execute(text('ALTER TABLE professor ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_active ON professor (active)'))
 
 
-def init_db(seed_if_empty=True):
+def init_db(seed_if_empty=True, sync=True):
     db.create_all()
     upgrade_schema()
     if seed_if_empty and db.session.query(School.id).first() is None:
@@ -285,6 +290,9 @@ def init_db(seed_if_empty=True):
             log.info('Database was seeded by another process')
             return
         log.info('Seeding complete')
+    if sync and db.session.query(School.id).first() is not None:
+        from faculty import sync_faculty
+        sync_faculty()
 
 
 def rating_stats(school_id=None):
@@ -339,6 +347,7 @@ def professor_summary(p, stats):
         'profile_url': p.profile_url,
         'school': p.school.code,
         'url': professor_path(p),
+        'active': p.active,
         'avg_rating': avg,
         'review_count': count,
     }
@@ -395,6 +404,8 @@ def create_app(config=None):
         # 5000 characters of Cyrillic or Azerbaijani text is about 10 KB of UTF-8, plus JSON escapes.
         MAX_CONTENT_LENGTH=32 * 1024,
         SEED_IF_EMPTY=True,
+        # Align professors with data/faculty.json on start (see faculty.py).
+        SYNC_FACULTY=True,
     )
     if config:
         app.config.update(config)
@@ -410,7 +421,13 @@ def create_app(config=None):
                     'Set RATELIMIT_STORAGE_URI (e.g. a Redis URL) in production.')
 
     with app.app_context():
-        init_db(seed_if_empty=app.config['SEED_IF_EMPTY'])
+        init_db(seed_if_empty=app.config['SEED_IF_EMPTY'], sync=app.config['SYNC_FACULTY'])
+
+    @app.cli.command('sync-faculty')
+    def sync_faculty_command():
+        """Align professors with data/faculty.json and print what changed."""
+        from faculty import sync_faculty
+        print(sync_faculty())
 
     @app.cli.command('init-db')
     def init_db_command():
@@ -488,7 +505,7 @@ def create_app(config=None):
             return render_page(app, 'school.html', meta, status=404)
         if code != school.code:
             return redirect(school_path(school.code), 301)
-        count = Professor.query.filter_by(school_id=school.id).count()
+        count = Professor.query.filter_by(school_id=school.id, active=True).count()
         meta = meta_tags(
             f'{school.name} professors · ADA Ratings',
             f'Ratings and anonymous student reviews of {count} professors at the ADA University {school.name}.',
@@ -549,7 +566,7 @@ def create_app(config=None):
         base = site_url()
         urls = [f'<url><loc>{base}/</loc></url>']
         urls += [f'<url><loc>{base}{school_path(s.code)}</loc></url>' for s in School.query.order_by(School.id)]
-        for p in Professor.query.order_by(Professor.id):
+        for p in Professor.query.filter_by(active=True).order_by(Professor.id):
             stamp = latest.get(p.id)
             lastmod = f'<lastmod>{stamp.date().isoformat()}</lastmod>' if stamp else ''
             urls.append(f'<url><loc>{escape(base + professor_path(p))}</loc>{lastmod}</url>')
@@ -561,6 +578,7 @@ def create_app(config=None):
     def get_schools():
         counts = dict(
             db.session.query(Professor.school_id, func.count(Professor.id))
+            .filter(Professor.active.is_(True))
             .group_by(Professor.school_id)
             .all()
         )
@@ -582,7 +600,11 @@ def create_app(config=None):
 
     @app.route('/api/professors', methods=['GET'])
     def get_professors():
-        query = Professor.query.options(joinedload(Professor.school)).order_by(Professor.name)
+        query = (
+            Professor.query.options(joinedload(Professor.school))
+            .filter(Professor.active.is_(True))
+            .order_by(Professor.name)
+        )
         school_code = request.args.get('school')
         school_id = None
         if school_code:

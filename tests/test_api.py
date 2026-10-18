@@ -672,3 +672,68 @@ def test_legacy_reviews_table_gains_detail_columns(tmp_path):
     assert [(r['course_code'], r['would_take_again']) for r in reviews] == [('CS 1101', False), (None, None)]
     with old.app_context():
         db.engine.dispose()
+
+
+# ---------- Faculty sync ----------
+
+def faculty_entry(name, school='SITE', title='Assistant Professor', slug=None):
+    slug = slug or name.lower().replace(' ', '-')
+    return {
+        'school': school, 'name': name, 'title': title, 'specialization': 'Computing',
+        'image_url': f'https://www.ada.edu.az/media/{slug}.jpg',
+        'profile_url': f'https://www.ada.edu.az/en/schools/{school.lower()}/members/faculty/1-{slug}',
+    }
+
+
+def test_sync_adds_updates_and_hides(app, client, prof_id):
+    from faculty import sync_faculty
+    entries = [
+        faculty_entry('Ada Lovelace', title='Professor'),   # promoted
+        faculty_entry('Grace Hopper'),                      # new
+    ]                                                       # Alan Turing left
+    with app.app_context():
+        assert sync_faculty(entries) == {'added': 1, 'updated': 1, 'deactivated': 1, 'reactivated': 0}
+        assert sync_faculty(entries) == {'added': 0, 'updated': 0, 'deactivated': 0, 'reactivated': 0}
+
+    listed = {p['name']: p for p in client.get('/api/professors').get_json()}
+    assert set(listed) == {'Ada Lovelace', 'Grace Hopper'}
+    assert listed['Ada Lovelace']['title'] == 'Professor'
+    assert listed['Ada Lovelace']['id'] == prof_id, 'existing professor kept, not recreated'
+    assert client.get('/api/schools').get_json()[0]['professor_count'] == 2
+
+
+def test_hidden_professor_keeps_page_and_reviews(app, client):
+    from faculty import sync_faculty
+    from models import Professor
+    with app.app_context():
+        turing = Professor.query.filter_by(name='Alan Turing').one().id
+    assert post_review(client, professor_id=turing).status_code == 201
+    with app.app_context():
+        sync_faculty([faculty_entry('Ada Lovelace')])
+    detail = client.get(f'/api/professors/{turing}').get_json()
+    assert detail['active'] is False and len(detail['reviews']) == 1
+    assert client.get(f'/professor/{turing}-alan-turing').status_code == 200
+    assert f'/professor/{turing}-' not in client.get('/sitemap.xml').get_data(as_text=True)
+
+
+def test_sync_matches_spelling_variants_and_reactivates(app, client):
+    from faculty import sync_faculty
+    from models import Professor
+    with app.app_context():
+        sync_faculty([faculty_entry('Ada Lovelace')])
+        assert Professor.query.filter_by(name='Alan Turing').one().active is False
+        summary = sync_faculty([faculty_entry('Ada Lovelace'), faculty_entry('Alan Turinq')])
+        assert summary['reactivated'] == 1 and summary['added'] == 0
+        assert Professor.query.filter_by(name='Alan Turinq').one().active is True
+
+
+def test_shipped_faculty_file_is_valid():
+    from faculty import load_faculty
+    entries = load_faculty()
+    assert len(entries) >= 100
+    assert {e['school'] for e in entries} == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA'}
+    assert len({e['profile_url'] for e in entries}) == len(entries)
+    for e in entries:
+        assert e['name'] and e['profile_url'].startswith('https://www.ada.edu.az/')
+        assert e['image_url'].startswith('https://www.ada.edu.az/')
+        assert len(e['name']) <= 100 and len(e['title'] or '') <= 100 and len(e['specialization'] or '') <= 100

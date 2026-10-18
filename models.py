@@ -27,6 +27,9 @@ class Professor(db.Model):
     bio = db.Column(db.Text)
     image_url = db.Column(db.String(300))
     profile_url = db.Column(db.String(300))
+    # False once the professor no longer appears on ada.edu.az: hidden from lists and search,
+    # but the page and its reviews stay reachable.
+    active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true(), index=True)
     school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=False, index=True)
     school = db.relationship('School', back_populates='professors')
     reviews = db.relationship(

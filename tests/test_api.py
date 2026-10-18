@@ -3,9 +3,11 @@ import pytest
 GOOD_TEXT = 'Clear lectures and fair grading.'
 
 
-def new_browser(app):
-    """Another student's browser, holding its own anonymous cookie."""
+def new_browser(app, ip=None):
+    """Another student's browser, holding its own anonymous cookie (optionally on its own network)."""
     browser = app.test_client()
+    if ip:
+        browser.environ_base['REMOTE_ADDR'] = ip
     browser.get('/api/schools')
     return browser
 
@@ -313,8 +315,8 @@ def test_one_report_per_review_per_browser(client, prof_id):
 
 def test_enough_reports_hide_a_review_and_drop_it_from_stats(app, client, prof_id):
     review_id = published_review(client, prof_id)
-    for _ in range(3):
-        assert report(new_browser(app), review_id).status_code == 202
+    for n in range(3):
+        assert report(new_browser(app, ip=f'198.51.100.{n}'), review_id).status_code == 202
     prof = client.get(f'/api/professors/{prof_id}').get_json()
     assert prof['reviews'] == [] and prof['review_count'] == 0
     assert client.get('/api/schools').get_json()[0]['review_count'] == 0
@@ -337,8 +339,8 @@ def test_moderator_can_restore_hide_and_delete(app, client, prof_id, monkeypatch
     monkeypatch.setenv('ADMIN_TOKEN', 'correct-horse')
     auth = {'Authorization': 'Bearer correct-horse'}
     review_id = published_review(client, prof_id)
-    for _ in range(3):
-        report(new_browser(app), review_id)
+    for n in range(3):
+        report(new_browser(app, ip=f'198.51.100.{n}'), review_id)
 
     flagged = client.get('/api/admin/reviews', headers=auth).get_json()['flagged']
     assert [(r['id'], r['status'], r['reasons']) for r in flagged] == [(review_id, 'pending', {'personal_attack': 3})]
@@ -480,6 +482,46 @@ def test_recent_reviews_feed(app, client, prof_id):
 
 def test_recent_feed_skips_hidden_reviews(app, client, prof_id):
     review_id = published_review(client, prof_id)
-    for _ in range(3):
-        report(new_browser(app), review_id)
+    for n in range(3):
+        report(new_browser(app, ip=f'198.51.100.{n}'), review_id)
     assert client.get('/api/reviews/recent').get_json() == []
+
+
+def test_forged_cookies_from_one_network_cannot_hide_a_review(app, client, prof_id, monkeypatch):
+    review_id = published_review(client, prof_id)
+    for n in range(5):
+        attacker = app.test_client()
+        attacker.set_cookie('ada_client', f'{n:032x}')
+        assert report(attacker, review_id).status_code == 202
+    assert len(client.get(f'/api/professors/{prof_id}').get_json()['reviews']) == 1
+
+    monkeypatch.setenv('ADMIN_TOKEN', 'correct-horse')
+    flagged = client.get('/api/admin/reviews', headers={'Authorization': 'Bearer correct-horse'}).get_json()['flagged']
+    assert [(r['id'], r['status'], r['report_count']) for r in flagged] == [(review_id, 'published', 5)]
+
+
+def test_reports_have_a_network_ceiling(app, client, prof_id):
+    from extensions import db
+    from models import Review
+    with app.app_context():
+        db.session.add_all([Review(professor_id=prof_id, rating=5, text='a review to report') for _ in range(31)])
+        db.session.commit()
+        ids = [r.id for r in Review.query.all()]
+    codes = []
+    for review_id in ids[:31]:
+        browser = app.test_client()
+        browser.set_cookie('ada_client', f'{review_id:032x}')
+        codes.append(report(browser, review_id).status_code)
+    assert codes[:30] == [202] * 30
+    assert codes[30] == 429
+
+
+def test_cookie_is_not_set_on_cacheable_images(app):
+    fresh = app.test_client()
+    assert 'Set-Cookie' not in fresh.get('/ada_logo.svg').headers
+    assert 'Set-Cookie' in fresh.get('/api/schools').headers
+
+
+def test_index_html_redirects_home(client):
+    res = client.get('/index.html')
+    assert res.status_code == 301 and res.headers['Location'].endswith('/')

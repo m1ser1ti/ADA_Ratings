@@ -31,6 +31,9 @@ Run the tests with `python -m pytest`.
 | --- | --- |
 | `DATABASE_URL` | Database URL. Defaults to a local SQLite file. |
 | `RATELIMIT_STORAGE_URI` | Where rate limits live, e.g. a Redis URL. Defaults to in-process memory, which resets on restart. |
+| `SECRET_KEY` | Key for the one-way network codes stored with reports. Set a long random value so they stay comparable across restarts. |
+| `ADMIN_TOKEN` | Turns on the moderation queue at `/admin.html`; without it the admin API does not exist. |
+| `SITE_URL` | Public origin for canonical links, link previews and the sitemap, e.g. `https://ratings.example.com`. |
 | `TRUST_PROXY` | Set to `1` behind exactly one hosting proxy so the real client address is used. |
 | `PORT`, `HOST` | Local development server address. |
 
@@ -39,3 +42,4 @@ Run the tests with `python -m pytest`.
 ## Production notes
 - The Procfile runs gunicorn with one worker and several threads, so in-memory rate limits are shared by every request. To run more workers, point `RATELIMIT_STORAGE_URI` at Redis first.
 - Review limits are per browser (an anonymous random cookie), because students on the campus network share one public address. A looser per-network ceiling and a per-professor ceiling stop scripted floods.
+- Three reports hide a review until a moderator checks it, but only when they come from at least three different networks; reports from one network still show up in the queue.

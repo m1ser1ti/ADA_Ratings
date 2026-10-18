@@ -13,7 +13,12 @@ export function escapeHtml(value) {
 // The first capture group of `pattern` in the current path, e.g. the 12 in /professor/12-ada-lovelace.
 export function pathParam(pattern) {
   const match = window.location.pathname.match(pattern);
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null; // malformed %-escape in a hand-typed URL
+  }
 }
 
 export function schoolUrl(code) {

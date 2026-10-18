@@ -83,7 +83,7 @@ async function loadProfessors() {
     professors = await api(`/api/professors?school=${encodeURIComponent(code)}`);
   } catch (err) {
     if (err.status === 404) {
-      grid.innerHTML = emptyState('School not found', `There is no school with the code “${code}”.`);
+      grid.innerHTML = emptyState('School not found', 'There is no school at this address.');
     } else {
       errorState(grid, 'Could not load professors. Check your connection and try again.', loadProfessors);
     }

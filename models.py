@@ -57,5 +57,8 @@ class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     review_id = db.Column(db.Integer, db.ForeignKey('review.id'), nullable=False, index=True)
     reason = db.Column(db.String(32), nullable=False)
+    # Keyed one-way hash of the reporter's network (never the address itself), so automatic
+    # hiding can require reports from several networks rather than several forged cookies.
+    network = db.Column(db.String(32))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     review = db.relationship('Review', back_populates='reports')

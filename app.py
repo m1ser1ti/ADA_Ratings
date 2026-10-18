@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import ipaddress
 import logging
 import os
@@ -110,6 +112,15 @@ def review_rate_key():
     return f'{device_key()}:{json_professor_id()}'
 
 
+# Without SECRET_KEY the hashing key changes on every restart; network hashes then
+# stop matching older reports, which only makes automatic hiding more conservative.
+NETWORK_HASH_KEY = (os.environ.get('SECRET_KEY') or secrets.token_hex(32)).encode()
+
+
+def network_hash():
+    return hmac.new(NETWORK_HASH_KEY, network_key().encode(), hashlib.sha256).hexdigest()[:32]
+
+
 def created(response):
     """Only successful submissions count toward a limit; a rejected attempt can be fixed and resent."""
     return response.status_code in (201, 202)
@@ -157,6 +168,10 @@ def upgrade_schema():
             log.info('Adding review.report_count')
             conn.execute(text('ALTER TABLE review ADD COLUMN report_count INTEGER NOT NULL DEFAULT 0'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_status ON review (status)'))
+        report_columns = {c['name'] for c in inspect(db.engine).get_columns('report')}
+        if 'network' not in report_columns:
+            log.info('Adding report.network')
+            conn.execute(text('ALTER TABLE report ADD COLUMN network VARCHAR(32)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
@@ -317,6 +332,9 @@ def create_app(config=None):
         # Pages, CSS and JS revalidate with their ETag so a deploy shows up at once.
         if request.path.startswith('/api/'):
             response.headers.setdefault('Cache-Control', 'no-store')
+        elif request.path.startswith('/img/og-'):
+            # Link-preview images keep a fixed name, so they must not be cached for long.
+            response.headers['Cache-Control'] = 'public, max-age=86400'
         elif request.path.endswith(LONG_CACHE_SUFFIXES):
             response.headers['Cache-Control'] = 'public, max-age=2592000'
         else:
@@ -327,7 +345,10 @@ def create_app(config=None):
     def client_cookie(response):
         # Anonymous, random and not tied to any review: only lets rate limits tell
         # two students on the same campus network apart.
-        if not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
+        # Only on pages and API answers: a cookie on a long-cached image could be stored by a
+        # shared cache and handed to everyone.
+        if response.mimetype in ('text/html', 'application/json') and \
+                not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
             response.set_cookie(
                 CLIENT_COOKIE, secrets.token_hex(16), max_age=CLIENT_COOKIE_MAX_AGE,
                 secure=request.is_secure, httponly=True, samesite='Lax',
@@ -401,6 +422,10 @@ def create_app(config=None):
         meta = meta_tags(f'{p.name} · ADA Ratings', f'{p.name}, {role} at ADA University. {rating}',
                          professor_path(p), image=p.image_url)
         return render_page(app, 'professor.html', meta)
+
+    @app.route('/index.html')
+    def old_index_link():
+        return redirect('/', 301)
 
     # Old query-string links (already shared around) keep working.
     @app.route('/professor.html')
@@ -573,6 +598,7 @@ def create_app(config=None):
         } for r in reviews])
 
     @app.route('/api/reviews/<int:review_id>/report', methods=['POST'])
+    @limiter.limit('30 per hour;100 per day', deduct_when=created)
     @limiter.limit('20 per day', key_func=device_key, deduct_when=created)
     @limiter.limit('1 per day', key_func=report_rate_key, deduct_when=created)
     def report_review(review_id):
@@ -583,11 +609,20 @@ def create_app(config=None):
         review = db.session.get(Review, review_id)
         if not review or review.status != REVIEW_PUBLISHED:
             return jsonify({'error': 'Review not found'}), 404
-        db.session.add(Report(review_id=review.id, reason=reason))
-        review.report_count += 1
-        if review.report_count >= REPORTS_TO_HIDE:
+        db.session.add(Report(review_id=review.id, reason=reason, network=network_hash()))
+        # In SQL, so two reports arriving together both count.
+        Review.query.filter_by(id=review.id).update({Review.report_count: Review.report_count + 1})
+        db.session.flush()
+        # Cookies are free to forge, networks are not: hide automatically only when the reports
+        # come from several networks. Reports from one network still reach the moderation queue.
+        networks = (
+            db.session.query(func.count(func.distinct(Report.network)))
+            .filter(Report.review_id == review.id, Report.network.isnot(None))
+            .scalar()
+        )
+        if networks >= REPORTS_TO_HIDE:
             review.status = REVIEW_PENDING
-            log.info('Review %s hidden for moderation after %s reports', review.id, review.report_count)
+            log.info('Review %s hidden for moderation after reports from %s networks', review.id, networks)
         db.session.commit()
         return jsonify({'success': True}), 202
 

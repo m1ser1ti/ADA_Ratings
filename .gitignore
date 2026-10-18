@@ -17,3 +17,10 @@ ada_ratings.db
 .vscode/
 .idea/
 *.swp
+
+# Virtualenvs and local clutter
+.venv/
+.env
+Icon?
+ada-ratings/
+node_modules/

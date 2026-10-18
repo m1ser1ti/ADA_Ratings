@@ -288,6 +288,26 @@ function renderReviews(p) {
     </section>`;
 }
 
+// Phones: a "Write a review" bar stays at the bottom until the form itself is on screen.
+let ctaObserver = null;
+function bindMobileCta() {
+  let bar = document.getElementById('mobile-cta');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'mobile-cta';
+    bar.className = 'mobile-cta';
+    bar.innerHTML = '<a class="btn btn-gold btn-block" href="#review-form">Write a review</a>';
+    document.body.append(bar);
+  }
+  const form = document.getElementById('review-form');
+  ctaObserver?.disconnect();
+  if (!form || !('IntersectionObserver' in window)) return;
+  ctaObserver = new IntersectionObserver(([entry]) => {
+    bar.classList.toggle('is-hidden', entry.isIntersecting || entry.boundingClientRect.top < 0);
+  });
+  ctaObserver.observe(form);
+}
+
 function render() {
   const p = professor;
   document.title = `${p.name} · ADA Ratings`;
@@ -309,6 +329,7 @@ function render() {
   bindForm();
   bindReports();
   bindShare();
+  bindMobileCta();
   const showList = () => {
     document.getElementById('review-list').innerHTML = renderReviewItems(visibleReviews(), sortOrder);
   };

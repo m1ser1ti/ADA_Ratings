@@ -230,7 +230,7 @@ def test_hsts_only_over_https(client):
 
 def test_cache_headers(client):
     assert client.get('/api/schools').headers['Cache-Control'] == 'no-store'
-    assert client.get('/ada_logo.svg').headers['Cache-Control'] == 'public, max-age=2592000'
+    assert client.get('/favicon.svg').headers['Cache-Control'] == 'public, max-age=2592000'
     assert client.get('/style.css').headers['Cache-Control'] == 'no-cache'
 
 
@@ -459,7 +459,7 @@ def test_site_url_setting_drives_canonical_links(client, prof_id, monkeypatch):
     monkeypatch.setenv('SITE_URL', 'https://ada-ratings.example/')
     html = client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
     assert f'href="https://ada-ratings.example/professor/{prof_id}-ada-lovelace"' in html
-    assert 'content="https://ada-ratings.example/img/og-default.jpg"' in html
+    assert 'content="https://ada-ratings.example/img/og-v2.jpg"' in html
 
 
 def test_sitemap_and_robots(client, prof_id):
@@ -521,7 +521,7 @@ def test_reports_have_a_network_ceiling(app, client, prof_id):
 
 def test_cookie_is_not_set_on_cacheable_images(app):
     fresh = app.test_client()
-    assert 'Set-Cookie' not in fresh.get('/ada_logo.svg').headers
+    assert 'Set-Cookie' not in fresh.get('/favicon.svg').headers
     assert 'Set-Cookie' in fresh.get('/api/schools').headers
 
 

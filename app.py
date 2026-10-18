@@ -359,7 +359,7 @@ def iso(dt):
 
 META_MARKER = '<!--META-->'
 DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews from ADA University students, across all six schools.'
-DEFAULT_OG_IMAGE = '/img/og-default.jpg'
+DEFAULT_OG_IMAGE = '/img/og-v2.jpg'
 
 
 def site_url():

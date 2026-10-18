@@ -307,59 +307,76 @@ export function setupSearch(root) {
   });
 }
 
-// ---------- Theme toggle ----------
-// Cycles system -> light -> dark. js/theme-init.js applies the saved choice before first paint.
+// ---------- Theme switch ----------
+// A light/dark slider. Until the visitor flips it the site follows the system theme;
+// after that the choice is saved and js/theme-init.js applies it before first paint.
 
 const THEME_KEY = 'ada-ratings:theme';
-const THEMES = ['system', 'light', 'dark'];
-const THEME_LABELS = { system: 'System theme', light: 'Light theme', dark: 'Dark theme' };
 const THEME_BAR = { light: '#ffffff', dark: '#0b1220' };
-const THEME_ICONS = {
-  system: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
-  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  dark: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
-};
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
-function currentTheme() {
-  const theme = document.documentElement.dataset.theme;
-  return theme === 'light' || theme === 'dark' ? theme : 'system';
+function isDark() {
+  const chosen = document.documentElement.dataset.theme;
+  return chosen ? chosen === 'dark' : systemDark.matches;
 }
 
-function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === 'system') delete root.dataset.theme;
-  else root.dataset.theme = theme;
-  try {
-    if (theme === 'system') localStorage.removeItem(THEME_KEY);
-    else localStorage.setItem(THEME_KEY, theme);
-  } catch { /* storage blocked: the choice lasts for this page only */ }
-  // The browser bar colour follows an explicit choice; "system" restores each meta's own colour.
-  document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
-    if (!meta.dataset.systemColor) meta.dataset.systemColor = meta.content;
-    meta.content = theme === 'system' ? meta.dataset.systemColor : THEME_BAR[theme];
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage blocked: lasts for this page */ }
+  document.querySelectorAll('meta[name="theme-color"]').forEach(meta => { meta.content = THEME_BAR[theme]; });
+}
+
+function syncThemeSwitches() {
+  const dark = isDark();
+  document.querySelectorAll('.theme-switch').forEach(button => {
+    button.setAttribute('aria-checked', String(dark));
   });
 }
 
-function setupThemeToggle(nav) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'theme-toggle';
-  const render = () => {
-    const theme = currentTheme();
-    const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${THEME_ICONS[theme]}</svg>`;
-    button.setAttribute('aria-label', `${THEME_LABELS[theme]}. Switch to ${THEME_LABELS[next].toLowerCase()}`);
-    button.title = `${THEME_LABELS[theme]} (click for ${THEME_LABELS[next].toLowerCase()})`;
-  };
+document.querySelectorAll('.theme-switch').forEach(button => {
   button.addEventListener('click', () => {
-    applyTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
-    render();
+    setTheme(isDark() ? 'light' : 'dark');
+    syncThemeSwitches();
   });
-  render();
-  if (currentTheme() !== 'system') applyTheme(currentTheme()); // sync the browser bar colour
-  nav.append(button);
-}
+});
+if (document.documentElement.dataset.theme) setTheme(document.documentElement.dataset.theme);
+systemDark.addEventListener('change', syncThemeSwitches);
+syncThemeSwitches();
 
-document.querySelectorAll('.header-nav').forEach(setupThemeToggle);
+// ---------- Mobile menu ----------
+
+function setupMobileMenu(toggle) {
+  const menu = document.getElementById(toggle.getAttribute('aria-controls'));
+  if (!menu) return;
+  const header = toggle.closest('.site-header');
+  const setOpen = open => {
+    if (open) document.documentElement.style.setProperty('--menu-top', `${header.getBoundingClientRect().bottom}px`);
+    menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+  toggle.addEventListener('click', () => {
+    const open = menu.hidden;
+    setOpen(open);
+    if (open) menu.querySelector('a')?.focus();
+  });
+  menu.addEventListener('click', event => { if (event.target.closest('a')) setOpen(false); });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !menu.hidden) { setOpen(false); toggle.focus(); }
+  });
+  document.addEventListener('click', event => {
+    if (!menu.hidden && !menu.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
+  });
+  window.matchMedia('(min-width: 961px)').addEventListener('change', event => { if (event.matches) setOpen(false); });
+}
+document.querySelectorAll('.menu-toggle').forEach(setupMobileMenu);
+
+// A soft shadow once the page scrolls under the sticky header.
+const siteHeader = document.querySelector('.site-header');
+if (siteHeader) {
+  const onScroll = () => siteHeader.classList.toggle('is-scrolled', window.scrollY > 4);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
 document.querySelectorAll('.search').forEach(setupSearch);
 document.querySelectorAll('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });

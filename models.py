@@ -37,6 +37,7 @@ class Professor(db.Model):
 class Review(db.Model):
     __table_args__ = (
         db.CheckConstraint('rating BETWEEN 1 AND 10', name='ck_review_rating_range'),
+        db.CheckConstraint('difficulty IS NULL OR difficulty BETWEEN 1 AND 5', name='ck_review_difficulty_range'),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -49,8 +50,18 @@ class Review(db.Model):
     # 'hidden' was taken down by a moderator.
     status = db.Column(db.String(16), nullable=False, default=REVIEW_PUBLISHED, server_default=REVIEW_PUBLISHED, index=True)
     report_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Optional details, all nullable so older reviews (and older clients) stay valid.
+    course_code = db.Column(db.String(16))  # normalized, e.g. 'CS 1101'
+    difficulty = db.Column(db.Integer)  # 1 (easy) to 5 (very hard)
+    would_take_again = db.Column(db.Boolean)
+    # Comma-joined keys from REVIEW_TAGS in app.py, at most three.
+    tags = db.Column(db.String(200))
     professor = db.relationship('Professor', back_populates='reviews')
     reports = db.relationship('Report', back_populates='review', lazy=True, cascade='all, delete-orphan')
+
+    @property
+    def tag_list(self):
+        return self.tags.split(',') if self.tags else []
 
 
 class Report(db.Model):

@@ -33,6 +33,15 @@ MIN_REVIEWS_FOR_AVERAGE = 3
 REPORTS_TO_HIDE = 3
 REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'other')
 RECENT_EXCERPT = 240
+# Keys are stored and sent to the client; the page shows its own labels for them.
+REVIEW_TAGS = (
+    'clear_lectures', 'tough_grader', 'lots_of_homework', 'fair_exams',
+    'caring', 'lecture_heavy', 'group_projects', 'participation_matters',
+)
+MAX_TAGS = 3
+TOP_TAGS = 3
+# 'CS 1101', 'cs1101', 'INTL 3010A': 2-5 letters, 3-4 digits, an optional section letter.
+COURSE_CODE = re.compile(r'^([A-Z]{2,5}) ?(\d{3,4}[A-Z]?)$')
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -65,6 +74,86 @@ def normalize_text(value):
 def is_int(value):
     # bool is a subclass of int: True must not pass as rating 1.
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def normalize_course_code(value):
+    """'  cs1101 ' -> 'CS 1101'; None when the value is not a course code."""
+    match = COURSE_CODE.match(re.sub(r'\s+', ' ', value.strip().upper()))
+    return f'{match[1]} {match[2]}' if match else None
+
+
+def review_details(data):
+    """The optional course, difficulty, would-take-again and tags of a new review.
+
+    Returns (fields, error). Missing, null and empty values mean "not answered",
+    so clients that only send rating and text keep working.
+    """
+    fields = {}
+
+    course = data.get('course_code')
+    if course not in (None, ''):
+        if not isinstance(course, str) or not (code := normalize_course_code(course)):
+            return None, 'Course code should look like CS 1101'
+        fields['course_code'] = code
+
+    difficulty = data.get('difficulty')
+    if difficulty is not None:
+        if not is_int(difficulty) or not 1 <= difficulty <= 5:
+            return None, 'Difficulty must be between 1 and 5'
+        fields['difficulty'] = difficulty
+
+    again = data.get('would_take_again')
+    if again is not None:
+        if not isinstance(again, bool):
+            return None, 'Would take again must be yes or no'
+        fields['would_take_again'] = again
+
+    tags = data.get('tags')
+    if tags is not None:
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            return None, 'Tags must be a list'
+        tags = list(dict.fromkeys(tags))  # a repeated tag counts once
+        if any(t not in REVIEW_TAGS for t in tags):
+            return None, 'Unknown tag'
+        if len(tags) > MAX_TAGS:
+            return None, f'Choose at most {MAX_TAGS} tags'
+        # Stored in the fixed order, so equal choices are equal strings.
+        fields['tags'] = ','.join(t for t in REVIEW_TAGS if t in tags) or None
+
+    return fields, None
+
+
+def review_json(r):
+    return {
+        'id': r.id, 'text': r.text, 'rating': r.rating, 'created_at': iso(r.created_at),
+        'course_code': r.course_code, 'difficulty': r.difficulty,
+        'would_take_again': r.would_take_again, 'tags': r.tag_list,
+    }
+
+
+def review_aggregates(reviews):
+    """Average difficulty, share who would take again and the most chosen tags.
+
+    Like the rating average, each figure appears only once enough reviews answered it:
+    one student's opinion is not a professor's profile.
+    """
+    difficulties = [r.difficulty for r in reviews if r.difficulty is not None]
+    agains = [r.would_take_again for r in reviews if r.would_take_again is not None]
+    tag_counts = {}
+    for r in reviews:
+        for tag in r.tag_list:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    enough = len(reviews) >= MIN_REVIEWS_FOR_AVERAGE
+    # Most chosen first; ties in the fixed tag order, so the result is stable.
+    rank = {t: i for i, t in enumerate(REVIEW_TAGS)}
+    top = sorted(tag_counts.items(), key=lambda item: (-item[1], rank.get(item[0], len(rank))))
+    return {
+        'avg_difficulty': round(sum(difficulties) / len(difficulties), 1)
+        if len(difficulties) >= MIN_REVIEWS_FOR_AVERAGE else None,
+        'would_take_again_pct': round(100 * sum(agains) / len(agains))
+        if len(agains) >= MIN_REVIEWS_FOR_AVERAGE else None,
+        'top_tags': [{'tag': t, 'count': n} for t, n in top[:TOP_TAGS]] if enough else [],
+    }
 
 
 CLIENT_COOKIE = 'ada_client'
@@ -167,6 +256,11 @@ def upgrade_schema():
         if 'report_count' not in columns:
             log.info('Adding review.report_count')
             conn.execute(text('ALTER TABLE review ADD COLUMN report_count INTEGER NOT NULL DEFAULT 0'))
+        for name, sql_type in (('course_code', 'VARCHAR(16)'), ('difficulty', 'INTEGER'),
+                               ('would_take_again', 'BOOLEAN'), ('tags', 'VARCHAR(200)')):
+            if name not in columns:
+                log.info('Adding review.%s', name)
+                conn.execute(text(f'ALTER TABLE review ADD COLUMN {name} {sql_type}'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_status ON review (status)'))
         report_columns = {c['name'] for c in inspect(db.engine).get_columns('report')}
         if 'network' not in report_columns:
@@ -517,12 +611,12 @@ def create_app(config=None):
         )})
         return jsonify({
             **summary,
+            **review_aggregates(reviews),
             'bio': p.bio,
             'distribution': distribution,
-            'reviews': [
-                {'id': r.id, 'text': r.text, 'rating': r.rating, 'created_at': iso(r.created_at)}
-                for r in reviews
-            ],
+            # Codes already used for this professor: suggestions in the form, and the course filter.
+            'courses': sorted({r.course_code for r in reviews if r.course_code}),
+            'reviews': [review_json(r) for r in reviews],
         })
 
     @app.route('/api/reviews', methods=['POST'])
@@ -559,23 +653,22 @@ def create_app(config=None):
         if profanity.contains_profanity(review_text):
             return jsonify({'error': 'Review contains inappropriate language'}), 400
 
+        details, error = review_details(data)
+        if error:
+            return jsonify({'error': error}), 400
+
         professor = db.session.get(Professor, prof_id)
         if not professor:
             return jsonify({'error': 'Professor not found'}), 404
 
-        review = Review(professor_id=professor.id, text=review_text, rating=rating)
+        review = Review(professor_id=professor.id, text=review_text, rating=rating, **details)
         db.session.add(review)
         db.session.commit()
 
         return jsonify({
             'success': True,
             'message': 'Review added successfully',
-            'review': {
-                'id': review.id,
-                'text': review.text,
-                'rating': review.rating,
-                'created_at': iso(review.created_at),
-            },
+            'review': review_json(review),
         }), 201
 
     @app.route('/api/reviews/recent', methods=['GET'])
@@ -594,6 +687,7 @@ def create_app(config=None):
             # The feed shows a teaser; the full text is on the professor's page.
             'text': r.text if len(r.text) <= RECENT_EXCERPT else r.text[:RECENT_EXCERPT].rstrip() + '…',
             'created_at': iso(r.created_at),
+            'course_code': r.course_code,
             'professor': {'name': r.professor.name, 'url': professor_path(r.professor), 'school': r.professor.school.code},
         } for r in reviews])
 
@@ -641,6 +735,7 @@ def create_app(config=None):
         return {
             'id': r.id, 'text': r.text, 'rating': r.rating, 'status': r.status,
             'report_count': r.report_count, 'reasons': reasons, 'created_at': iso(r.created_at),
+            'course_code': r.course_code,
             'professor': {'id': r.professor.id, 'name': r.professor.name},
         }
 

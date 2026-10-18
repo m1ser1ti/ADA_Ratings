@@ -285,7 +285,10 @@ def test_legacy_database_is_upgraded_in_place(tmp_path):
     for _ in range(2):  # a second start must be a no-op
         legacy = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': f'sqlite:///{path}', 'SEED_IF_EMPTY': True})
     reviews = legacy.test_client().get('/api/professors/1').get_json()['reviews']
-    assert reviews == [{'id': 1, 'text': 'written before dates existed', 'rating': 8, 'created_at': None}]
+    assert reviews == [{
+        'id': 1, 'text': 'written before dates existed', 'rating': 8, 'created_at': None,
+        'course_code': None, 'difficulty': None, 'would_take_again': None, 'tags': [],
+    }]
     with legacy.app_context():
         db.engine.dispose()
 
@@ -525,3 +528,147 @@ def test_cookie_is_not_set_on_cacheable_images(app):
 def test_index_html_redirects_home(client):
     res = client.get('/index.html')
     assert res.status_code == 301 and res.headers['Location'].endswith('/')
+
+
+# ---------- Course, difficulty, would-take-again and tags ----------
+
+def test_review_details_round_trip(client, prof_id):
+    res = post_review(client, professor_id=prof_id, course_code='  cs1101 ', difficulty=4,
+                      would_take_again=True, tags=['fair_exams', 'clear_lectures', 'fair_exams'])
+    assert res.status_code == 201
+    posted = res.get_json()['review']
+    assert (posted['course_code'], posted['difficulty'], posted['would_take_again'], posted['tags']) == \
+        ('CS 1101', 4, True, ['clear_lectures', 'fair_exams'])
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['reviews'][0]['course_code'] == 'CS 1101'
+    assert prof['reviews'][0]['tags'] == ['clear_lectures', 'fair_exams']
+    assert prof['courses'] == ['CS 1101']
+
+
+def test_review_details_are_optional(client, prof_id):
+    res = post_review(client, professor_id=prof_id, course_code='', difficulty=None, would_take_again=None, tags=[])
+    assert res.status_code == 201
+    review = res.get_json()['review']
+    assert (review['course_code'], review['difficulty'], review['would_take_again'], review['tags']) == (None, None, None, [])
+
+
+@pytest.mark.parametrize('code, stored', [
+    ('CS 1101', 'CS 1101'), ('cs1101', 'CS 1101'), ('intl  3010a', 'INTL 3010A'), ('BUS 201', 'BUS 201'),
+])
+def test_course_codes_are_normalized(client, prof_id, code, stored):
+    res = post_review(client, professor_id=prof_id, course_code=code)
+    assert res.get_json()['review']['course_code'] == stored
+
+
+@pytest.mark.parametrize('field, value, message', [
+    ('course_code', 'Computer Science', 'Course code should look like CS 1101'),
+    ('course_code', 'C 1101', 'Course code should look like CS 1101'),
+    ('course_code', 'CS 11', 'Course code should look like CS 1101'),
+    ('course_code', 1101, 'Course code should look like CS 1101'),
+    ('difficulty', 0, 'Difficulty must be between 1 and 5'),
+    ('difficulty', 6, 'Difficulty must be between 1 and 5'),
+    ('difficulty', '3', 'Difficulty must be between 1 and 5'),
+    ('difficulty', True, 'Difficulty must be between 1 and 5'),
+    ('difficulty', 2.5, 'Difficulty must be between 1 and 5'),
+    ('would_take_again', 'yes', 'Would take again must be yes or no'),
+    ('would_take_again', 1, 'Would take again must be yes or no'),
+    ('tags', 'caring', 'Tags must be a list'),
+    ('tags', [1], 'Tags must be a list'),
+    ('tags', ['boring'], 'Unknown tag'),
+    ('tags', ['caring', 'fair_exams', 'tough_grader', 'lecture_heavy'], 'Choose at most 3 tags'),
+])
+def test_bad_review_details_rejected(client, prof_id, field, value, message):
+    res = post_review(client, professor_id=prof_id, **{field: value})
+    assert res.status_code == 400
+    assert res.get_json() == {'error': message}
+
+
+def test_detail_aggregates_wait_for_three_answers(app, client, prof_id):
+    post_review(client, professor_id=prof_id, difficulty=2, would_take_again=True, tags=['caring', 'fair_exams'])
+    post_review(new_browser(app), professor_id=prof_id, difficulty=3, would_take_again=False, tags=['caring'])
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert (prof['avg_difficulty'], prof['would_take_again_pct'], prof['top_tags']) == (None, None, [])
+
+    post_review(new_browser(app), professor_id=prof_id, difficulty=5, would_take_again=True,
+                tags=['tough_grader', 'fair_exams', 'lecture_heavy'])
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['avg_difficulty'] == 3.3
+    assert prof['would_take_again_pct'] == 67
+    # Ties keep the fixed tag order.
+    assert prof['top_tags'] == [
+        {'tag': 'fair_exams', 'count': 2}, {'tag': 'caring', 'count': 2}, {'tag': 'tough_grader', 'count': 1},
+    ]
+
+
+def test_aggregates_count_only_reviews_that_answered(app, client, prof_id):
+    post_review(client, professor_id=prof_id, difficulty=4)
+    for _ in range(2):
+        post_review(new_browser(app), professor_id=prof_id)
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['avg_rating'] is not None, 'three reviews: the rating average shows'
+    assert prof['avg_difficulty'] is None, 'but only one of them rated difficulty'
+    assert prof['would_take_again_pct'] is None
+    assert prof['top_tags'] == []
+
+
+def test_hidden_reviews_do_not_count_toward_aggregates(app, client, prof_id):
+    ids = [
+        post_review(b, professor_id=prof_id, course_code='CS 1101', difficulty=5, would_take_again=False,
+                    tags=['tough_grader']).get_json()['review']['id']
+        for b in (client, new_browser(app), new_browser(app))
+    ]
+    post_review(new_browser(app), professor_id=prof_id, course_code='MATH 2201', difficulty=1,
+                would_take_again=True, tags=['caring'])
+    with app.app_context():
+        from extensions import db
+        from models import REVIEW_HIDDEN, REVIEW_PENDING, Review
+        Review.query.filter_by(id=ids[0]).update({'status': REVIEW_HIDDEN})
+        Review.query.filter_by(id=ids[1]).update({'status': REVIEW_PENDING})
+        db.session.commit()
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['review_count'] == 2
+    assert (prof['avg_difficulty'], prof['would_take_again_pct'], prof['top_tags']) == (None, None, [])
+    assert prof['courses'] == ['CS 1101', 'MATH 2201']
+
+    post_review(new_browser(app), professor_id=prof_id, difficulty=3, would_take_again=True, tags=['caring'])
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['avg_difficulty'] == 3.0  # (5 + 1 + 3) / 3, the hidden 5s left out
+    assert prof['would_take_again_pct'] == 67
+    assert prof['top_tags'] == [{'tag': 'caring', 'count': 2}, {'tag': 'tough_grader', 'count': 1}]
+
+
+def test_legacy_reviews_table_gains_detail_columns(tmp_path):
+    import sqlite3
+    from sqlalchemy import inspect
+    from app import create_app
+    from extensions import db
+    path = tmp_path / 'before-details.db'
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE school (id INTEGER PRIMARY KEY, code VARCHAR(20) UNIQUE NOT NULL, name VARCHAR(100) NOT NULL);
+        CREATE TABLE professor (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, title VARCHAR(100),
+            specialization VARCHAR(100), bio TEXT, image_url VARCHAR(300), profile_url VARCHAR(300),
+            school_id INTEGER NOT NULL REFERENCES school(id));
+        CREATE TABLE review (id INTEGER PRIMARY KEY, professor_id INTEGER NOT NULL REFERENCES professor(id),
+            text TEXT NOT NULL, rating INTEGER NOT NULL, created_at TIMESTAMP,
+            status VARCHAR(16) NOT NULL DEFAULT 'published', report_count INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE report (id INTEGER PRIMARY KEY, review_id INTEGER NOT NULL REFERENCES review(id),
+            reason VARCHAR(32) NOT NULL, network VARCHAR(32), created_at TIMESTAMP);
+        INSERT INTO school VALUES (1, 'SITE', 'School of IT and Engineering');
+        INSERT INTO professor (id, name, school_id) VALUES (1, 'Ada Lovelace', 1);
+        INSERT INTO review (id, professor_id, text, rating) VALUES (1, 1, 'from before course codes', 7);
+    """)
+    con.close()
+    for _ in range(2):  # a second start must be a no-op
+        old = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': f'sqlite:///{path}', 'SEED_IF_EMPTY': False})
+    with old.app_context():
+        columns = {c['name'] for c in inspect(db.engine).get_columns('review')}
+        assert {'course_code', 'difficulty', 'would_take_again', 'tags'} <= columns
+    browser = old.test_client()
+    browser.get('/api/schools')
+    assert post_review(browser, professor_id=1, course_code='CS 1101', difficulty=2,
+                       would_take_again=False, tags=['caring']).status_code == 201
+    reviews = browser.get('/api/professors/1').get_json()['reviews']
+    assert [(r['course_code'], r['would_take_again']) for r in reviews] == [('CS 1101', False), (None, None)]
+    with old.app_context():
+        db.engine.dispose()

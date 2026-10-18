@@ -779,3 +779,22 @@ def test_old_school_links_only_redirect_to_real_schools(client):
 def test_course_codes_must_use_ascii_digits(client, prof_id):
     res = post_review(client, professor_id=prof_id, course_code='CS ١١٠١')
     assert res.status_code == 400
+
+
+def test_backup_copies_everything_and_restores(tmp_path, app, client, prof_id):
+    from sqlalchemy import create_engine
+    from backup import copy_database
+    from extensions import db
+    post_review(client, professor_id=prof_id, text='Worth backing up, great course.')
+    target = create_engine(f'sqlite:///{tmp_path / "backup.db"}')
+    with app.app_context():
+        counts = copy_database(db.engine, target)
+        assert counts['school'] == 1 and counts['professor'] == 2 and counts['review'] == 1
+        # A second run replaces rather than duplicates.
+        assert copy_database(db.engine, target)['review'] == 1
+        # Restore into an empty database gives the same rows back.
+        restored = create_engine(f'sqlite:///{tmp_path / "restored.db"}')
+        assert copy_database(target, restored) == counts
+        with restored.connect() as con:
+            from sqlalchemy import text
+            assert con.execute(text('SELECT text FROM review')).scalar() == 'Worth backing up, great course.'

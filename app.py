@@ -8,6 +8,7 @@ import secrets
 import unicodedata
 from pathlib import Path
 
+import click
 from better_profanity import profanity
 from flask import Flask, Response, abort, jsonify, redirect, request
 from markupsafe import escape
@@ -433,6 +434,27 @@ def create_app(config=None):
         """Align professors with data/faculty.json and print what changed."""
         from faculty import sync_faculty
         print(sync_faculty())
+
+    @app.cli.command('backup-db')
+    def backup_db_command():
+        """Copy the whole database into BACKUP_DATABASE_URL (run nightly by a cron service)."""
+        from backup import backup
+        target = os.environ.get('BACKUP_DATABASE_URL')
+        if not target:
+            raise SystemExit('BACKUP_DATABASE_URL is not set')
+        print('Backed up:', backup(app.config['SQLALCHEMY_DATABASE_URI'], target))
+
+    @app.cli.command('restore-from-backup')
+    @click.option('--yes', is_flag=True, help='Confirm replacing the live data with the backup.')
+    def restore_command(yes):
+        """Replace the live database with the last backup. Destructive: needs --yes."""
+        from backup import backup
+        source = os.environ.get('BACKUP_DATABASE_URL')
+        if not source:
+            raise SystemExit('BACKUP_DATABASE_URL is not set')
+        if not yes:
+            raise SystemExit('This replaces all live data with the backup. Re-run with --yes.')
+        print('Restored:', backup(source, app.config['SQLALCHEMY_DATABASE_URI']))
 
     @app.cli.command('init-db')
     def init_db_command():

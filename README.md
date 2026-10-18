@@ -35,6 +35,7 @@ Run the tests with `python -m pytest`.
 | `ADMIN_TOKEN` | Turns on the moderation queue at `/admin.html`; without it the admin API does not exist. |
 | `SITE_URL` | Public origin for canonical links, link previews and the sitemap, e.g. `https://ratings.example.com`. |
 | `TRUST_PROXY` | Set to `1` behind exactly one hosting proxy so the real client address is used. |
+| `BACKUP_DATABASE_URL` | A second Postgres for nightly copies (see Backups). |
 | `PORT`, `HOST` | Local development server address. |
 
 `flask --app app init-db` creates the tables and seeds an empty database explicitly; the app also does this on start.
@@ -44,3 +45,15 @@ Run the tests with `python -m pytest`.
 - The Procfile runs gunicorn with one worker and several threads, so in-memory rate limits are shared by every request. To run more workers, point `RATELIMIT_STORAGE_URI` at Redis first.
 - Review limits are per browser (an anonymous random cookie), because students on the campus network share one public address. A looser per-network ceiling and a per-professor ceiling stop scripted floods.
 - Three reports hide a review until a moderator checks it, but only when they come from at least three different networks; reports from one network still show up in the queue.
+
+## Backups
+A second Postgres holds a full copy of the live data, refreshed every night:
+
+1. In Railway, add a second PostgreSQL service and name it `Postgres-backup`.
+2. Add a service from the same GitHub repo named `db-backup` with:
+   - *Custom Start Command*: `flask --app app backup-db`
+   - *Cron Schedule*: `0 2 * * *` (02:00 UTC daily) and restart policy *Never*
+   - Variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `BACKUP_DATABASE_URL=${{Postgres-backup.DATABASE_URL}}`
+3. Each run replaces the backup with one consistent snapshot; its log prints the row counts.
+
+To restore, run once with the same variables: `flask --app app restore-from-backup --yes`.

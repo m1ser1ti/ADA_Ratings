@@ -986,6 +986,69 @@ p { margin: 0; text-wrap: pretty; }
 .review p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .review.is-new { border-color: var(--gold-500); box-shadow: 0 0 0 3px var(--gold-50); }
 
+/* ---------- Reporting ---------- */
+
+.review-report {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.review-report:hover { color: var(--r-low); border-color: var(--border); }
+.review-reported { margin-left: auto; font-size: 0.82rem; color: var(--text-subtle); }
+.report-form {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.report-form .label { font-size: 0.88rem; }
+.report-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.report-row .select, .report-row .input { flex: 1; min-width: 200px; }
+.btn-sm { min-height: 40px; padding: 0 14px; font-size: 0.88rem; }
+
+/* ---------- Text pages ---------- */
+
+.prose-wrap { padding-bottom: 88px; }
+.prose { max-width: 720px; padding-top: 24px; }
+.prose h1 { font-size: clamp(2rem, 4vw, 2.75rem); font-weight: 600; margin-bottom: 12px; }
+.prose h2 { font-size: 1.35rem; font-weight: 600; margin: 36px 0 10px; }
+.prose p, .prose li { color: var(--text-muted); }
+.prose ul { padding-left: 1.2em; margin: 0; display: grid; gap: 6px; }
+.prose-lead { font-size: 1.12rem; }
+.prose code { font-size: 0.9em; padding: 1px 6px; background: var(--surface-2); border-radius: 4px; }
+
+/* ---------- Moderation ---------- */
+
+.admin-title { font-size: 2rem; font-weight: 600; margin: 32px 0 20px; }
+.admin-login { max-width: 560px; }
+.admin-gap { margin-top: 40px; }
+.admin-reasons { margin-top: 8px; font-size: 0.86rem; color: var(--r-low); }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.admin-delete { color: var(--r-low); }
+.admin-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.admin-badge--pending { background: var(--gold-50); color: var(--gold-700); }
+.admin-badge--hidden { background: var(--error-bg); color: var(--error-text); }
+
 /* ---------- States ---------- */
 
 .state {

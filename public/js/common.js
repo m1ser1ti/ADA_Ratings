@@ -103,9 +103,12 @@ export function ratingClass(rating) {
   return 'r-low';
 }
 
+// Must match MIN_REVIEWS_FOR_AVERAGE in app.py: below it the API sends no average.
+export const MIN_REVIEWS_FOR_AVERAGE = 3;
+
 export function ratingBadge(rating, size = '') {
   if (rating == null) {
-    return `<span class="rating-badge r-none ${size}">No ratings</span>`;
+    return `<span class="rating-badge r-none ${size}">Not rated yet</span>`;
   }
   const value = Number(rating).toFixed(1).replace(/\.0$/, '');
   // The visible "8/10" is hidden from screen readers, which hear the full phrase instead.

@@ -1,6 +1,6 @@
 import {
-  api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, plural, queryParam,
-  ratingBadge, safeUrl, starsMeter,
+  MIN_REVIEWS_FOR_AVERAGE, api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, plural,
+  queryParam, ratingBadge, safeUrl, starsMeter,
 } from './common.js';
 import { SCHOOLS } from './schools.js';
 
@@ -21,6 +21,25 @@ const SORTS = {
   low: (a, b) => a.rating - b.rating || b.id - a.id,
 };
 const SORT_LABELS = { newest: 'newest first', high: 'highest rated first', low: 'lowest rated first' };
+const REPORT_REASONS = {
+  personal_attack: 'Personal attack or insult',
+  false_information: 'False or misleading',
+  spam: 'Spam or off-topic',
+  other: 'Something else',
+};
+const REPORTED_KEY = 'ada-ratings:reported';
+
+function reportedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(REPORTED_KEY) || '[]')); } catch { return new Set(); }
+}
+
+function rememberReported(id) {
+  try {
+    const ids = reportedIds();
+    ids.add(id);
+    localStorage.setItem(REPORTED_KEY, JSON.stringify([...ids].slice(-200)));
+  } catch { /* storage blocked: the button simply shows again next visit */ }
+}
 
 function announce(message) {
   announcer.textContent = '';
@@ -45,6 +64,15 @@ function renderProfile(p) {
     </section>`;
 }
 
+function summaryNote(p) {
+  const total = p.review_count;
+  if (!total) return 'Be the first to rate';
+  if (p.avg_rating == null) {
+    return `Average appears after ${MIN_REVIEWS_FOR_AVERAGE} reviews · ${total} so far`;
+  }
+  return `based on ${plural(total, 'review')}`;
+}
+
 function renderSummary(p) {
   const total = p.review_count;
   const max = Math.max(1, ...Object.values(p.distribution));
@@ -64,7 +92,7 @@ function renderSummary(p) {
       <div class="summary-score">
         ${ratingBadge(p.avg_rating, 'large')}
         <div>${starsMeter(p.avg_rating)}</div>
-        <p>${total ? `based on ${plural(total, 'review')}` : 'Be the first to rate'}</p>
+        <p>${summaryNote(p)}</p>
       </div>
       <div>
         <h2 id="summary-title">Rating distribution</h2>
@@ -82,7 +110,7 @@ function renderForm() {
   return `
     <section class="card review-form" id="review-form" aria-labelledby="form-title">
       <h2 id="form-title">Rate this professor</h2>
-      <p class="form-hint" id="form-hint">Reviews are anonymous. Be honest, specific and respectful — describe the teaching, not the person. Both fields are required.</p>
+      <p class="form-hint" id="form-hint">Reviews are anonymous. Be honest, specific and respectful — describe the teaching, not the person. Both fields are required. <a href="/rules.html">Review rules</a></p>
       <form novalidate>
         <fieldset class="fieldset" id="rating-field" role="radiogroup" aria-required="true">
           <legend>Your rating <span class="visually-hidden">(1 is worst, 10 is best)</span></legend>
@@ -109,14 +137,19 @@ function renderReviewItems(reviews, sort) {
       <a class="btn btn-primary" href="#review-form">Write the first review</a>
     </li>`;
   }
+  const reported = reportedIds();
   return [...reviews].sort(SORTS[sort] || SORTS.newest).map(r => {
     const mine = r.id === newReviewId;
+    const action = mine ? '' : reported.has(r.id)
+      ? '<span class="review-reported">Reported</span>'
+      : `<button type="button" class="review-report" data-review="${r.id}" aria-expanded="false">Report<span class="visually-hidden"> this review</span></button>`;
     return `
-    <li class="review${mine ? ' is-new' : ''}">
+    <li class="review${mine ? ' is-new' : ''}" data-review-id="${r.id}">
       <div class="review-meta">
         ${ratingBadge(r.rating)}
         ${r.created_at ? `<time datetime="${escapeHtml(r.created_at)}">${escapeHtml(formatDate(r.created_at))}</time>` : ''}
         ${mine ? '<span>· Your review</span>' : ''}
+        ${action}
       </div>
       <p>${escapeHtml(r.text)}</p>
     </li>`;
@@ -157,10 +190,77 @@ function render() {
     </div>`;
   root.removeAttribute('aria-busy');
   bindForm();
+  bindReports();
   document.getElementById('review-sort')?.addEventListener('change', event => {
     const sort = event.target.value;
     document.getElementById('review-list').innerHTML = renderReviewItems(professor.reviews, sort);
     announce(`Reviews sorted, ${SORT_LABELS[sort]}.`);
+  });
+}
+
+function reportForm(id) {
+  const options = Object.entries(REPORT_REASONS)
+    .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  return `
+    <form class="report-form" data-review="${id}">
+      <label class="label" for="report-reason-${id}">Why should a moderator check this review?</label>
+      <div class="report-row">
+        <select class="select" id="report-reason-${id}" name="reason">${options}</select>
+        <button type="submit" class="btn btn-primary btn-sm">Send report</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+      </div>
+      <p class="field-error" role="alert"></p>
+    </form>`;
+}
+
+function bindReports() {
+  const list = document.getElementById('review-list');
+  list.addEventListener('click', event => {
+    const open = event.target.closest('.review-report');
+    if (open) {
+      const item = open.closest('.review');
+      if (item.querySelector('.report-form')) return;
+      open.setAttribute('aria-expanded', 'true');
+      item.insertAdjacentHTML('beforeend', reportForm(open.dataset.review));
+      item.querySelector('.report-form select').focus();
+      return;
+    }
+    if (event.target.matches('[data-cancel]')) {
+      const item = event.target.closest('.review');
+      item.querySelector('.report-form').remove();
+      const button = item.querySelector('.review-report');
+      button.setAttribute('aria-expanded', 'false');
+      button.focus();
+    }
+  });
+  list.addEventListener('submit', async event => {
+    const form = event.target.closest('.report-form');
+    if (!form) return;
+    event.preventDefault();
+    const id = Number(form.dataset.review);
+    const send = form.querySelector('[type="submit"]');
+    if (send.getAttribute('aria-busy') === 'true') return;
+    send.setAttribute('aria-busy', 'true');
+    try {
+      await api(`/api/reviews/${id}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: form.reason.value }),
+      });
+    } catch (err) {
+      send.removeAttribute('aria-busy');
+      form.querySelector('.field-error').textContent = err.status === 429
+        ? 'You have already reported this review.'
+        : err.message;
+      return;
+    }
+    rememberReported(id);
+    const item = form.closest('.review');
+    form.remove();
+    item.querySelector('.review-report')?.replaceWith(Object.assign(document.createElement('span'), {
+      className: 'review-reported', textContent: 'Reported',
+    }));
+    announce('Thank you. A moderator will check this review.');
   });
 }
 

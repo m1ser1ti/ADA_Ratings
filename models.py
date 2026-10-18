@@ -3,6 +3,11 @@ from datetime import datetime, timezone
 from extensions import db
 
 
+REVIEW_PUBLISHED = 'published'
+REVIEW_PENDING = 'pending'
+REVIEW_HIDDEN = 'hidden'
+
+
 def utcnow():
     return datetime.now(timezone.utc)
 
@@ -40,4 +45,17 @@ class Review(db.Model):
     rating = db.Column(db.Integer, nullable=False)
     # Nullable: reviews written before this column existed have no date.
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
+    # 'published' is public; 'pending' waits for a moderator (e.g. after several reports);
+    # 'hidden' was taken down by a moderator.
+    status = db.Column(db.String(16), nullable=False, default=REVIEW_PUBLISHED, server_default=REVIEW_PUBLISHED, index=True)
+    report_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     professor = db.relationship('Professor', back_populates='reviews')
+    reports = db.relationship('Report', back_populates='review', lazy=True, cascade='all, delete-orphan')
+
+
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    review_id = db.Column(db.Integer, db.ForeignKey('review.id'), nullable=False, index=True)
+    reason = db.Column(db.String(32), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    review = db.relationship('Review', back_populates='reports')

@@ -3,6 +3,13 @@ import pytest
 GOOD_TEXT = 'Clear lectures and fair grading.'
 
 
+def new_browser(app):
+    """Another student's browser, holding its own anonymous cookie."""
+    browser = app.test_client()
+    browser.get('/api/schools')
+    return browser
+
+
 def post_review(client, **overrides):
     body = {'professor_id': overrides.pop('professor_id', None), 'rating': 8, 'text': GOOD_TEXT}
     body.update(overrides)
@@ -25,19 +32,23 @@ def test_professors_by_school_and_unknown_school(client):
     assert res.get_json() == {'error': 'School not found'}
 
 
-def test_review_round_trip_updates_average_and_distribution(client, prof_id):
+def test_review_round_trip_updates_average_and_distribution(app, client, prof_id):
     res = post_review(client, professor_id=prof_id, rating=9)
     assert res.status_code == 201
     assert res.get_json()['review']['created_at'] is not None
 
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert prof['avg_rating'] == 9.0
+    assert prof['avg_rating'] is None, 'one review is too few for a public average'
     assert prof['review_count'] == 1
     assert prof['distribution']['9'] == 1
     assert prof['reviews'][0]['text'] == GOOD_TEXT
 
+    for rating in (7, 8):
+        assert post_review(new_browser(app), professor_id=prof_id, rating=rating).status_code == 201
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['avg_rating'] == 8.0
     listed = {p['id']: p for p in client.get('/api/professors').get_json()}
-    assert listed[prof_id]['avg_rating'] == 9.0
+    assert listed[prof_id]['avg_rating'] == 8.0
 
 
 @pytest.mark.parametrize('body', [
@@ -275,3 +286,99 @@ def test_legacy_database_is_upgraded_in_place(tmp_path):
     assert reviews == [{'id': 1, 'text': 'written before dates existed', 'rating': 8, 'created_at': None}]
     with legacy.app_context():
         db.engine.dispose()
+
+
+# ---------- Moderation ----------
+
+def report(client, review_id, reason='personal_attack'):
+    return client.post(f'/api/reviews/{review_id}/report', json={'reason': reason})
+
+
+def published_review(client, prof_id):
+    return post_review(client, professor_id=prof_id).get_json()['review']['id']
+
+
+def test_report_needs_a_known_reason(client, prof_id):
+    review_id = published_review(client, prof_id)
+    assert report(client, review_id, reason='i just dislike it').status_code == 400
+    assert report(client, 999999).status_code == 404
+    assert report(client, review_id).status_code == 202
+
+
+def test_one_report_per_review_per_browser(client, prof_id):
+    review_id = published_review(client, prof_id)
+    assert report(client, review_id).status_code == 202
+    assert report(client, review_id).status_code == 429
+
+
+def test_enough_reports_hide_a_review_and_drop_it_from_stats(app, client, prof_id):
+    review_id = published_review(client, prof_id)
+    for _ in range(3):
+        assert report(new_browser(app), review_id).status_code == 202
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['reviews'] == [] and prof['review_count'] == 0
+    assert client.get('/api/schools').get_json()[0]['review_count'] == 0
+    assert report(new_browser(app), review_id).status_code == 404
+
+
+def test_admin_routes_do_not_exist_without_a_token(client, monkeypatch):
+    monkeypatch.delenv('ADMIN_TOKEN', raising=False)
+    assert client.get('/api/admin/reviews').status_code == 404
+
+
+def test_admin_needs_the_right_token(client, monkeypatch):
+    monkeypatch.setenv('ADMIN_TOKEN', 'correct-horse')
+    assert client.get('/api/admin/reviews').status_code == 401
+    assert client.get('/api/admin/reviews', headers={'Authorization': 'Bearer wrong'}).status_code == 401
+    assert client.get('/api/admin/reviews', headers={'Authorization': 'Bearer correct-horse'}).status_code == 200
+
+
+def test_moderator_can_restore_hide_and_delete(app, client, prof_id, monkeypatch):
+    monkeypatch.setenv('ADMIN_TOKEN', 'correct-horse')
+    auth = {'Authorization': 'Bearer correct-horse'}
+    review_id = published_review(client, prof_id)
+    for _ in range(3):
+        report(new_browser(app), review_id)
+
+    flagged = client.get('/api/admin/reviews', headers=auth).get_json()['flagged']
+    assert [(r['id'], r['status'], r['reasons']) for r in flagged] == [(review_id, 'pending', {'personal_attack': 3})]
+
+    def act(action):
+        return client.post(f'/api/admin/reviews/{review_id}', json={'action': action}, headers=auth)
+
+    assert act('publish').status_code == 200
+    assert len(client.get(f'/api/professors/{prof_id}').get_json()['reviews']) == 1
+    assert act('hide').status_code == 200
+    assert client.get(f'/api/professors/{prof_id}').get_json()['reviews'] == []
+    assert act('nonsense').status_code == 400
+    assert act('delete').status_code == 200
+    assert act('publish').status_code == 404
+
+
+def test_legacy_reviews_table_gains_moderation_columns(tmp_path):
+    import sqlite3
+    from app import create_app
+    from extensions import db
+    path = tmp_path / 'old.db'
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE school (id INTEGER PRIMARY KEY, code VARCHAR(20) UNIQUE NOT NULL, name VARCHAR(100) NOT NULL);
+        CREATE TABLE professor (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, title VARCHAR(100),
+            specialization VARCHAR(100), bio TEXT, image_url VARCHAR(300), profile_url VARCHAR(300),
+            school_id INTEGER NOT NULL REFERENCES school(id));
+        CREATE TABLE review (id INTEGER PRIMARY KEY, professor_id INTEGER NOT NULL REFERENCES professor(id),
+            text TEXT NOT NULL, rating INTEGER NOT NULL, created_at TIMESTAMP);
+        INSERT INTO school VALUES (1, 'SITE', 'School of IT and Engineering');
+        INSERT INTO professor (id, name, school_id) VALUES (1, 'Ada Lovelace', 1);
+        INSERT INTO review VALUES (1, 1, 'already on the site', 8, NULL);
+    """)
+    con.close()
+    old = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': f'sqlite:///{path}', 'SEED_IF_EMPTY': True})
+    assert len(old.test_client().get('/api/professors/1').get_json()['reviews']) == 1
+    with old.app_context():
+        db.engine.dispose()
+
+
+def test_rejected_review_does_not_use_up_the_daily_limit(client, prof_id):
+    assert post_review(client, professor_id=prof_id, text='Ты му​дак и вообще').status_code == 400
+    assert post_review(client, professor_id=prof_id).status_code == 201

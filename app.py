@@ -6,7 +6,7 @@ import secrets
 import unicodedata
 
 from better_profanity import profanity
-from flask import Flask, jsonify, request
+from flask import Flask, abort, jsonify, request
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -17,12 +17,17 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db
-from models import Professor, Review, School
+from models import REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Professor, Report, Review, School
 
 log = logging.getLogger(__name__)
 
 MIN_REVIEW_LENGTH = 10
 MAX_REVIEW_LENGTH = 5000
+# One or two reviews say little, and let a single angry student define a professor.
+MIN_REVIEWS_FOR_AVERAGE = 3
+# This many reports take a review off the site until a moderator looks at it.
+REPORTS_TO_HIDE = 3
+REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'other')
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -102,6 +107,16 @@ def review_rate_key():
     return f'{device_key()}:{json_professor_id()}'
 
 
+def created(response):
+    """Only successful submissions count toward a limit; a rejected attempt can be fixed and resent."""
+    return response.status_code in (201, 202)
+
+
+def report_rate_key():
+    """One report per review per device."""
+    return f'{device_key()}:report:{request.view_args.get("review_id")}'
+
+
 def professor_rate_key():
     """All reviews of one professor, from anyone: blunts a coordinated pile-on."""
     return f'professor:{json_professor_id()}'
@@ -132,6 +147,13 @@ def upgrade_schema():
         if 'created_at' not in columns:
             log.info('Adding review.created_at')
             conn.execute(text('ALTER TABLE review ADD COLUMN created_at TIMESTAMP WITH TIME ZONE'))
+        if 'status' not in columns:
+            log.info('Adding review.status')
+            conn.execute(text(f"ALTER TABLE review ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT '{REVIEW_PUBLISHED}'"))
+        if 'report_count' not in columns:
+            log.info('Adding review.report_count')
+            conn.execute(text('ALTER TABLE review ADD COLUMN report_count INTEGER NOT NULL DEFAULT 0'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_status ON review (status)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
@@ -155,7 +177,10 @@ def init_db(seed_if_empty=True):
 
 def rating_stats(school_id=None):
     """{professor_id: (avg, count)} for every professor with reviews, in one query."""
-    query = db.session.query(Review.professor_id, func.avg(Review.rating), func.count(Review.id))
+    query = (
+        db.session.query(Review.professor_id, func.avg(Review.rating), func.count(Review.id))
+        .filter(Review.status == REVIEW_PUBLISHED)
+    )
     if school_id is not None:
         query = query.join(Professor, Professor.id == Review.professor_id).filter(Professor.school_id == school_id)
     rows = query.group_by(Review.professor_id).all()
@@ -164,6 +189,8 @@ def rating_stats(school_id=None):
 
 def professor_summary(p, stats):
     avg, count = stats.get(p.id, (None, 0))
+    if count < MIN_REVIEWS_FOR_AVERAGE:
+        avg = None
     return {
         'id': p.id,
         'name': p.name,
@@ -253,7 +280,7 @@ def create_app(config=None):
     def api_http_error(err):
         if not request.path.startswith('/api/'):
             return err
-        messages = {429: 'Too many reviews, please try again later', 413: 'Request is too large'}
+        messages = {429: 'Too many requests, please try again later', 413: 'Request is too large'}
         return jsonify({'error': messages.get(err.code, err.description)}), err.code
 
     @app.errorhandler(SQLAlchemyError)
@@ -278,6 +305,7 @@ def create_app(config=None):
         reviews = dict(
             db.session.query(Professor.school_id, func.count(Review.id))
             .join(Review, Review.professor_id == Professor.id)
+            .filter(Review.status == REVIEW_PUBLISHED)
             .group_by(Professor.school_id)
             .all()
         )
@@ -308,7 +336,7 @@ def create_app(config=None):
     def get_professor(prof_id):
         p = db.get_or_404(Professor, prof_id)
         reviews = (
-            Review.query.filter_by(professor_id=p.id)
+            Review.query.filter_by(professor_id=p.id, status=REVIEW_PUBLISHED)
             .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
             .all()
         )
@@ -333,10 +361,10 @@ def create_app(config=None):
     # Per network: generous, since a whole campus can sit behind one address.
     @limiter.limit('60 per hour;300 per day')
     # Per device: the real per-person limits.
-    @limiter.limit('5 per hour;20 per day', key_func=device_key)
-    @limiter.limit('1 per day', key_func=review_rate_key)
+    @limiter.limit('5 per hour;20 per day', key_func=device_key, deduct_when=created)
+    @limiter.limit('1 per day', key_func=review_rate_key, deduct_when=created)
     # Per professor, from everyone together.
-    @limiter.limit('20 per hour', key_func=professor_rate_key)
+    @limiter.limit('20 per hour', key_func=professor_rate_key, deduct_when=created)
     def add_review():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
@@ -381,6 +409,83 @@ def create_app(config=None):
                 'created_at': iso(review.created_at),
             },
         }), 201
+
+    @app.route('/api/reviews/<int:review_id>/report', methods=['POST'])
+    @limiter.limit('20 per day', key_func=device_key, deduct_when=created)
+    @limiter.limit('1 per day', key_func=report_rate_key, deduct_when=created)
+    def report_review(review_id):
+        data = request.get_json(silent=True)
+        reason = data.get('reason') if isinstance(data, dict) else None
+        if reason not in REPORT_REASONS:
+            return jsonify({'error': 'Choose a reason for the report'}), 400
+        review = db.session.get(Review, review_id)
+        if not review or review.status != REVIEW_PUBLISHED:
+            return jsonify({'error': 'Review not found'}), 404
+        db.session.add(Report(review_id=review.id, reason=reason))
+        review.report_count += 1
+        if review.report_count >= REPORTS_TO_HIDE:
+            review.status = REVIEW_PENDING
+            log.info('Review %s hidden for moderation after %s reports', review.id, review.report_count)
+        db.session.commit()
+        return jsonify({'success': True}), 202
+
+    def require_admin():
+        token = os.environ.get('ADMIN_TOKEN', '')
+        if not token:
+            abort(404)  # moderation is switched off: the routes do not exist
+        given = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+        if not secrets.compare_digest(given.encode(), token.encode()):
+            abort(401)
+
+    def admin_review(r):
+        reasons = {}
+        for report in r.reports:
+            reasons[report.reason] = reasons.get(report.reason, 0) + 1
+        return {
+            'id': r.id, 'text': r.text, 'rating': r.rating, 'status': r.status,
+            'report_count': r.report_count, 'reasons': reasons, 'created_at': iso(r.created_at),
+            'professor': {'id': r.professor.id, 'name': r.professor.name},
+        }
+
+    @app.route('/api/admin/reviews', methods=['GET'])
+    @limiter.limit('60 per minute')
+    def admin_reviews():
+        require_admin()
+        flagged = (
+            Review.query.options(joinedload(Review.professor), joinedload(Review.reports))
+            .filter((Review.status != REVIEW_PUBLISHED) | (Review.report_count > 0))
+            .order_by(Review.report_count.desc(), Review.id.desc())
+            .limit(200)
+            .all()
+        )
+        recent = (
+            Review.query.options(joinedload(Review.professor), joinedload(Review.reports))
+            .filter(Review.status == REVIEW_PUBLISHED)
+            .order_by(Review.id.desc())
+            .limit(50)
+            .all()
+        )
+        return jsonify({'flagged': [admin_review(r) for r in flagged], 'recent': [admin_review(r) for r in recent]})
+
+    @app.route('/api/admin/reviews/<int:review_id>', methods=['POST'])
+    @limiter.limit('60 per minute')
+    def admin_moderate(review_id):
+        require_admin()
+        data = request.get_json(silent=True)
+        action = data.get('action') if isinstance(data, dict) else None
+        review = db.session.get(Review, review_id) or abort(404)
+        if action == 'publish':
+            review.status = REVIEW_PUBLISHED
+            review.report_count = 0  # past reports were looked at; only new ones count again
+        elif action == 'hide':
+            review.status = REVIEW_HIDDEN
+        elif action == 'delete':
+            db.session.delete(review)
+        else:
+            return jsonify({'error': 'Unknown action'}), 400
+        db.session.commit()
+        log.info('Moderator %s review %s', action, review_id)
+        return jsonify({'success': True})
 
     return app
 

@@ -59,6 +59,19 @@ function renderList() {
   grid.innerHTML = shown.map(professorCard).join('');
 }
 
+// School-wide numbers for the hero; the average weights each professor by review count.
+function renderStats() {
+  const reviews = professors.reduce((sum, p) => sum + p.review_count, 0);
+  const weighted = professors.reduce((sum, p) => sum + (p.avg_rating ?? 0) * p.review_count, 0);
+  const set = (key, value) => {
+    document.querySelector(`[data-school-stat="${key}"]`).textContent = value;
+  };
+  set('professors', professors.length.toLocaleString('en-US'));
+  set('reviews', reviews.toLocaleString('en-US'));
+  set('avg', reviews ? `${(weighted / reviews).toFixed(1)} / 10` : '—');
+  document.getElementById('school-stats').hidden = false;
+}
+
 async function loadProfessors() {
   if (!code) {
     grid.innerHTML = emptyState('No school selected', 'Pick a school on the home page.');
@@ -68,6 +81,7 @@ async function loadProfessors() {
   grid.setAttribute('aria-busy', 'true');
   try {
     professors = await api(`/api/professors?school=${encodeURIComponent(code)}`);
+    renderStats();
     renderList();
   } catch (err) {
     if (err.status === 404) {

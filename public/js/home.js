@@ -24,11 +24,16 @@ async function loadSchools() {
       return `
         <li>
           <a class="school-card" href="school.html?code=${encodeURIComponent(s.code)}">
-            <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}" alt="" loading="lazy">
-            <div class="school-card-body">
+            <div class="school-card-media">
+              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}" alt="" loading="lazy">
               <span class="school-code">${escapeHtml(s.code)}</span>
+            </div>
+            <div class="school-card-body">
               <h3>${escapeHtml(s.name)}</h3>
-              <p class="school-meta">${plural(s.professor_count, 'professor')} · ${plural(s.review_count, 'review')}</p>
+              <p class="school-meta">
+                <span>${plural(s.professor_count, 'professor')} · ${plural(s.review_count, 'review')}</span>
+                <span class="school-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+              </p>
             </div>
           </a>
         </li>`;

@@ -262,6 +262,13 @@ export function setupSearch(root) {
   document.addEventListener('click', event => {
     if (!root.contains(event.target)) close();
   });
+
+  // Optional Search button: opens the highlighted (or first) match, else returns focus to the field.
+  root.querySelector('.search-submit')?.addEventListener('click', () => {
+    const pick = !list.hidden && matches[active >= 0 ? active : 0];
+    if (pick) go(pick);
+    else input.focus();
+  });
 }
 
 document.querySelectorAll('.search').forEach(setupSearch);

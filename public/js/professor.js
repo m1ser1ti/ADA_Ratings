@@ -26,7 +26,7 @@ function renderAside(p) {
         ${p.specialization ? `<div><dt>Specialization</dt><dd>${escapeHtml(p.specialization)}</dd></div>` : ''}
       </dl>
       <a class="btn btn-gold btn-block" href="#review-form">Write a review</a>
-      ${profile ? `<a class="btn btn-ghost btn-block" style="margin-top:10px" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
+      ${profile ? `<a class="btn btn-ghost btn-block" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
     </aside>`;
 }
 

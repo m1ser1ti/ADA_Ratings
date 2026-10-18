@@ -39,7 +39,7 @@ def app():
 def client(app):
     """A browser that has opened the site once, so it holds the anonymous client cookie."""
     client = app.test_client()
-    client.get('/api/schools')
+    client.get('/')
     return client
 
 

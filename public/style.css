@@ -1,5 +1,55 @@
 /* ADA Ratings — editorial navy + gold design system */
 
+/* Fonts are served from this site (latin + latin-ext for Azerbaijani letters). */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: italic;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/source-serif-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: italic;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/source-serif-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/source-serif-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/source-serif-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   /* Brand */
   --navy-950: #06142e;
@@ -42,6 +92,8 @@
   --r-mid: #b54708;
   --r-low: #b42318;
   --r-none: #667085;
+  --danger-text: var(--r-low);
+  --warn-text: var(--r-mid);
 
   --success-bg: #ecfdf3;
   --success-text: #05603a;
@@ -83,7 +135,7 @@
 :root[data-theme="dark"] .theme-switch svg:first-child { color: var(--text-subtle); }
 :root[data-theme="dark"] .theme-switch svg:nth-child(2) { color: var(--navy-950); }
 :root[data-theme="dark"] .theme-switch-knob { background: var(--accent); }
-:root[data-theme="dark"] .theme-switch-track { background: var(--navy-800); border-color: var(--navy-700); }
+:root[data-theme="dark"] .theme-switch-track { background: var(--navy-800); border-color: #6b7a94; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
 @media (prefers-color-scheme: dark) {
@@ -91,7 +143,7 @@
   :root:not([data-theme="light"]) .theme-switch svg:first-child { color: var(--text-subtle); }
   :root:not([data-theme="light"]) .theme-switch svg:nth-child(2) { color: var(--navy-950); }
   :root:not([data-theme="light"]) .theme-switch-knob { background: var(--accent); }
-  :root:not([data-theme="light"]) .theme-switch-track { background: var(--navy-800); border-color: var(--navy-700); }
+  :root:not([data-theme="light"]) .theme-switch-track { background: var(--navy-800); border-color: #6b7a94; }
   :root:not([data-theme="light"]) {
     --navy-50: #17253f;
     --navy-600: #7f9fd6;
@@ -121,6 +173,8 @@
     --brand-gold: #e0b74a;
 
     --r-none: #8792a6;
+    --danger-text: #f97066;
+    --warn-text: #f79f5b;
     --success-bg: #0f2a1d;
     --success-text: #75e0a7;
     --error-bg: #2a1418;
@@ -170,6 +224,8 @@
     --brand-gold: #e0b74a;
 
     --r-none: #8792a6;
+    --danger-text: #f97066;
+    --warn-text: #f79f5b;
     --success-bg: #0f2a1d;
     --success-text: #75e0a7;
     --error-bg: #2a1418;
@@ -365,7 +421,7 @@ p { margin: 0; text-wrap: pretty; }
   height: 32px;
   padding: 0 8px;
   background: var(--surface-2);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-input);
   border-radius: 999px;
   transition: background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
 }
@@ -1236,7 +1292,7 @@ p { margin: 0; text-wrap: pretty; }
 
 .form-field { margin-bottom: 22px; }
 .course-input { width: 100%; max-width: 220px; text-transform: uppercase; }
-.input[aria-invalid="true"] { border-color: var(--r-low); }
+.input[aria-invalid="true"] { border-color: var(--danger-text); }
 
 .link-btn {
   min-height: 44px;
@@ -1299,12 +1355,12 @@ p { margin: 0; text-wrap: pretty; }
   transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 .textarea::placeholder { color: var(--text-subtle); }
-.textarea[aria-invalid="true"], .fieldset[aria-invalid="true"] .rating-picker label { border-color: var(--r-low); }
+.textarea[aria-invalid="true"], .fieldset[aria-invalid="true"] .rating-picker label { border-color: var(--danger-text); }
 .label-hint { font-weight: 400; color: var(--text-muted); }
 .state-title { font-family: var(--font-sans); font-size: 1.2rem; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 .char-count { display: block; text-align: right; font-size: 0.8rem; color: var(--text-subtle); margin: 6px 0 16px; font-variant-numeric: tabular-nums; }
-.char-count.warn { color: var(--r-mid); font-weight: 600; }
-.field-error { color: var(--r-low); font-size: 0.85rem; margin-top: 6px; }
+.char-count.warn { color: var(--warn-text); font-weight: 600; }
+.field-error { color: var(--danger-text); font-size: 0.85rem; margin-top: 6px; }
 .field-error:empty { display: none; }
 
 .status {
@@ -1430,7 +1486,7 @@ p { margin: 0; text-wrap: pretty; }
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
-.review-report:hover { color: var(--r-low); border-color: var(--border); }
+.review-report:hover { color: var(--danger-text); border-color: var(--border); }
 .review-reported { margin-left: auto; font-size: 0.82rem; color: var(--text-subtle); }
 .report-form {
   margin-top: 14px;
@@ -1460,9 +1516,9 @@ p { margin: 0; text-wrap: pretty; }
 .admin-title { font-size: 2rem; font-weight: 600; margin: 32px 0 20px; }
 .admin-login { max-width: 560px; }
 .admin-gap { margin-top: 40px; }
-.admin-reasons { margin-top: 8px; font-size: 0.86rem; color: var(--r-low); }
+.admin-reasons { margin-top: 8px; font-size: 0.86rem; color: var(--danger-text); }
 .admin-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.admin-delete { color: var(--r-low); }
+.admin-delete { color: var(--danger-text); }
 .admin-badge {
   margin-left: auto;
   padding: 2px 8px;
@@ -1653,10 +1709,11 @@ p { margin: 0; text-wrap: pretty; }
     -webkit-backdrop-filter: saturate(180%) blur(14px);
     backdrop-filter: saturate(180%) blur(14px);
     border-top: 1px solid var(--border);
-    transition: transform var(--dur-base) var(--ease), opacity var(--dur-base) var(--ease);
+    transition: transform var(--dur-base) var(--ease), opacity var(--dur-base) var(--ease), visibility var(--dur-base);
   }
   .prof-aside .btn-gold { display: none; }
-  .mobile-cta.is-hidden { transform: translateY(110%); opacity: 0; pointer-events: none; }
+  .mobile-cta.is-hidden { transform: translateY(110%); opacity: 0; pointer-events: none; visibility: hidden; }
+  html:has(.mobile-cta:not(.is-hidden)) { scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
   body:has(.mobile-cta:not(.is-hidden)) .site-footer { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 }
 
@@ -1740,6 +1797,10 @@ p { margin: 0; text-wrap: pretty; }
   .site-footer { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
 }
 
+@media (max-width: 720px) and (max-height: 520px) {
+  .site-header { position: static; }
+}
+
 @media (max-width: 380px) {
   .brand-name { font-size: 1.02rem; }
   .brand-mark { width: 28px; height: 28px; }
@@ -1761,6 +1822,8 @@ p { margin: 0; text-wrap: pretty; }
 }
 
 @media (forced-colors: active) {
+  .theme-switch-track { border-color: CanvasText; }
+  .theme-switch-knob { background: CanvasText; forced-color-adjust: none; }
   .rating-picker input:checked + label { outline: 3px solid CanvasText; outline-offset: -3px; }
   .rating-badge, .school-code, .chip, .tag { border: 1px solid CanvasText; }
   .tag-option input:checked + label { outline: 3px solid CanvasText; outline-offset: -3px; }

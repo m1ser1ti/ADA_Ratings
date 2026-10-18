@@ -41,7 +41,7 @@ REVIEW_TAGS = (
 MAX_TAGS = 3
 TOP_TAGS = 3
 # 'CS 1101', 'cs1101', 'INTL 3010A': 2-5 letters, 3-4 digits, an optional section letter.
-COURSE_CODE = re.compile(r'^([A-Z]{2,5}) ?(\d{3,4}[A-Z]?)$')
+COURSE_CODE = re.compile(r'^([A-Z]{2,5}) ?([0-9]{3,4}[A-Z]?)$', re.ASCII)
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -54,8 +54,8 @@ profanity.add_censor_words(custom_bad_words)
 CSP = '; '.join([
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: https://www.ada.edu.az",
     "connect-src 'self'",
     "frame-ancestors 'none'",
@@ -226,10 +226,11 @@ def professor_rate_key():
 
 
 RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
-limiter = Limiter(key_func=network_key, storage_uri=RATELIMIT_STORAGE_URI)
+limiter = Limiter(key_func=network_key, storage_uri=RATELIMIT_STORAGE_URI, headers_enabled=True)
 compress = Compress()
 
-LONG_CACHE_SUFFIXES = ('.webp', '.jpg', '.png', '.ico', '.svg')
+CACHEABLE_API = ('/api/schools', '/api/professors', '/api/reviews/recent')
+LONG_CACHE_SUFFIXES = ('.webp', '.jpg', '.png', '.ico', '.svg', '.woff2')
 
 
 def database_url():
@@ -292,7 +293,11 @@ def init_db(seed_if_empty=True, sync=True):
         log.info('Seeding complete')
     if sync and db.session.query(School.id).first() is not None:
         from faculty import sync_faculty
-        sync_faculty()
+        try:
+            sync_faculty()
+        except Exception:  # a bad data file must not stop the site from starting
+            db.session.rollback()
+            log.exception('Faculty sync failed; keeping the current professor list')
 
 
 def rating_stats(school_id=None):
@@ -441,7 +446,10 @@ def create_app(config=None):
     def cache_headers(response):
         # Images never change in place (new art gets a new name), so browsers may keep them.
         # Pages, CSS and JS revalidate with their ETag so a deploy shows up at once.
-        if request.path.startswith('/api/'):
+        if request.path in CACHEABLE_API and request.method == 'GET' and response.status_code == 200:
+            # Shared lists change slowly; a short cache saves a round trip on every page view.
+            response.headers['Cache-Control'] = 'public, max-age=30'
+        elif request.path.startswith('/api/'):
             response.headers.setdefault('Cache-Control', 'no-store')
         elif request.path.startswith('/img/og-'):
             # Link-preview images keep a fixed name, so they must not be cached for long.
@@ -458,8 +466,9 @@ def create_app(config=None):
         # two students on the same campus network apart.
         # Only on pages and API answers: a cookie on a long-cached image could be stored by a
         # shared cache and handed to everyone.
-        if response.mimetype in ('text/html', 'application/json') and \
-                not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
+        # Pages and review/report posts only: API reads stay cookie-free so they can be cached.
+        wants_cookie = response.mimetype == 'text/html' or (request.method == 'POST' and request.path.startswith('/api/reviews'))
+        if wants_cookie and not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
             response.set_cookie(
                 CLIENT_COOKIE, secrets.token_hex(16), max_age=CLIENT_COOKIE_MAX_AGE,
                 secure=request.is_secure, httponly=True, samesite='Lax',
@@ -481,7 +490,8 @@ def create_app(config=None):
     def api_http_error(err):
         if not request.path.startswith('/api/'):
             return err
-        messages = {429: 'Too many requests, please try again later', 413: 'Request is too large'}
+        messages = {429: 'Too many requests, please try again later', 413: 'Request is too large',
+                    401: 'Unauthorized', 404: 'Not found', 405: 'Method not allowed'}
         return jsonify({'error': messages.get(err.code, err.description)}), err.code
 
     @app.errorhandler(SQLAlchemyError)
@@ -548,7 +558,8 @@ def create_app(config=None):
     @app.route('/school.html')
     def old_school_link():
         code = (request.args.get('code') or '').upper()
-        return redirect(school_path(code) if code else '/', 301)
+        known = code and School.query.filter_by(code=code).first()
+        return redirect(school_path(code) if known else '/', 301)
 
     @app.route('/robots.txt')
     def robots():

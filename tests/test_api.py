@@ -8,7 +8,7 @@ def new_browser(app, ip=None):
     browser = app.test_client()
     if ip:
         browser.environ_base['REMOTE_ADDR'] = ip
-    browser.get('/api/schools')
+    browser.get('/')
     return browser
 
 
@@ -124,7 +124,7 @@ def test_security_headers_and_no_open_cors(client):
 def test_students_on_one_campus_network_can_review_the_same_professor(app, prof_id):
     first, second = app.test_client(), app.test_client()
     for browser in (first, second):
-        browser.get('/api/schools')
+        browser.get('/')
     assert post_review(first, professor_id=prof_id).status_code == 201
     assert post_review(second, professor_id=prof_id).status_code == 201
     assert post_review(first, professor_id=prof_id).status_code == 429
@@ -137,7 +137,7 @@ def test_cookieless_scripts_share_their_network_limit(app, prof_id):
 
 
 def test_client_cookie_is_anonymous_and_http_only(app):
-    res = app.test_client().get('/api/schools')
+    res = app.test_client().get('/')
     cookie = res.headers['Set-Cookie']
     assert cookie.startswith('ada_client=')
     assert 'HttpOnly' in cookie and 'SameSite=Lax' in cookie
@@ -158,7 +158,7 @@ def test_professor_wide_cap_stops_a_pile_on(app, prof_id):
     codes = []
     for _ in range(21):
         browser = app.test_client()
-        browser.get('/api/schools')
+        browser.get('/')
         codes.append(post_review(browser, professor_id=prof_id).status_code)
     assert codes[:20] == [201] * 20
     assert codes[20] == 429
@@ -229,7 +229,8 @@ def test_hsts_only_over_https(client):
 
 
 def test_cache_headers(client):
-    assert client.get('/api/schools').headers['Cache-Control'] == 'no-store'
+    assert client.get('/api/schools').headers['Cache-Control'] == 'public, max-age=30'
+    assert client.get('/api/professors/1').headers['Cache-Control'] == 'no-store'
     assert client.get('/favicon.svg').headers['Cache-Control'] == 'public, max-age=2592000'
     assert client.get('/style.css').headers['Cache-Control'] == 'no-cache'
 
@@ -522,7 +523,8 @@ def test_reports_have_a_network_ceiling(app, client, prof_id):
 def test_cookie_is_not_set_on_cacheable_images(app):
     fresh = app.test_client()
     assert 'Set-Cookie' not in fresh.get('/favicon.svg').headers
-    assert 'Set-Cookie' in fresh.get('/api/schools').headers
+    assert 'Set-Cookie' not in fresh.get('/api/schools').headers, 'API reads stay cacheable'
+    assert 'Set-Cookie' in fresh.get('/').headers
 
 
 def test_index_html_redirects_home(client):
@@ -665,7 +667,7 @@ def test_legacy_reviews_table_gains_detail_columns(tmp_path):
         columns = {c['name'] for c in inspect(db.engine).get_columns('review')}
         assert {'course_code', 'difficulty', 'would_take_again', 'tags'} <= columns
     browser = old.test_client()
-    browser.get('/api/schools')
+    browser.get('/')
     assert post_review(browser, professor_id=1, course_code='CS 1101', difficulty=2,
                        would_take_again=False, tags=['caring']).status_code == 201
     reviews = browser.get('/api/professors/1').get_json()['reviews']
@@ -737,3 +739,43 @@ def test_shipped_faculty_file_is_valid():
         assert e['name'] and e['profile_url'].startswith('https://www.ada.edu.az/')
         assert e['image_url'].startswith('https://www.ada.edu.az/')
         assert len(e['name']) <= 100 and len(e['title'] or '') <= 100 and len(e['specialization'] or '') <= 100
+
+
+def test_sync_refuses_to_hide_most_professors(app):
+    from faculty import sync_faculty
+    from models import Professor
+    with app.app_context():
+        summary = sync_faculty([])  # a broken or empty data file
+        assert summary['deactivated'] == 0
+        assert Professor.query.filter_by(active=True).count() == 2
+
+
+def test_sync_exact_matches_win_over_near_names(app):
+    from faculty import sync_faculty
+    from models import Professor
+    with app.app_context():
+        # "Ada Lovelaze" is near "Ada Lovelace" but listed first; the exact entry must keep its row.
+        exact_id = Professor.query.filter_by(name='Ada Lovelace').one().id
+        sync_faculty([faculty_entry('Ada Lovelaze'), faculty_entry('Ada Lovelace'), faculty_entry('Alan Turing')])
+        assert Professor.query.filter_by(name='Ada Lovelace').one().id == exact_id
+        assert Professor.query.filter_by(name='Ada Lovelaze').one().id != exact_id
+
+
+def test_sync_skips_entries_off_the_ada_site(app):
+    from faculty import sync_faculty
+    from models import Professor
+    with app.app_context():
+        evil = faculty_entry('Mallory Evil')
+        evil['profile_url'] = 'https://evil.example/x'
+        sync_faculty([faculty_entry('Ada Lovelace'), faculty_entry('Alan Turing'), evil])
+        assert Professor.query.filter_by(name='Mallory Evil').count() == 0
+
+
+def test_old_school_links_only_redirect_to_real_schools(client):
+    assert client.get('/school.html?code=//evil.com').headers['Location'].endswith('/')
+    assert client.get('/school.html?code=site').headers['Location'].endswith('/school/SITE')
+
+
+def test_course_codes_must_use_ascii_digits(client, prof_id):
+    res = post_review(client, professor_id=prof_id, course_code='CS ١١٠١')
+    assert res.status_code == 400

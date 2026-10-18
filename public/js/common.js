@@ -353,7 +353,6 @@ function setupMobileMenu(toggle) {
     if (open) document.documentElement.style.setProperty('--menu-top', `${header.getBoundingClientRect().bottom}px`);
     menu.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
-    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   };
   toggle.addEventListener('click', () => {
     const open = menu.hidden;
@@ -368,6 +367,16 @@ function setupMobileMenu(toggle) {
     if (!menu.hidden && !menu.contains(event.target) && !toggle.contains(event.target)) setOpen(false);
   });
   window.matchMedia('(min-width: 961px)').addEventListener('change', event => { if (event.matches) setOpen(false); });
+  // Keyboard users who tab past the last link leave the menu, so it closes rather than hiding the page.
+  menu.addEventListener('focusout', event => {
+    if (event.relatedTarget && !menu.contains(event.relatedTarget) && !toggle.contains(event.relatedTarget)) setOpen(false);
+  });
+  // Rotation or a resized window can change the header height; mobile browsers also fire resize
+  // when the address bar hides, so only a real width change closes the menu.
+  let width = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth !== width) { width = window.innerWidth; if (!menu.hidden) setOpen(false); }
+  });
 }
 document.querySelectorAll('.menu-toggle').forEach(setupMobileMenu);
 

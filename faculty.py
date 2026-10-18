@@ -34,6 +34,26 @@ def load_faculty(path=FACULTY_FILE):
         return json.load(f)['professors']
 
 
+# Professors must keep at least this share of the active list, or the sync refuses to hide anyone:
+# a truncated or broken faculty.json must not empty the site.
+MIN_KEEP_SHARE = 0.5
+ALLOWED_URL_PREFIX = 'https://www.ada.edu.az/'
+
+
+def clean_entry(entry):
+    """The synced fields, or None for an entry that is malformed or points off the ADA site."""
+    if not isinstance(entry, dict) or not entry.get('name') or not entry.get('school'):
+        return None
+    if not str(entry.get('profile_url', '')).startswith(ALLOWED_URL_PREFIX):
+        return None
+    image = entry.get('image_url')
+    if image is not None and not str(image).startswith(ALLOWED_URL_PREFIX):
+        image = None
+    values = {field: entry.get(field) for field in SYNCED_FIELDS}
+    values['image_url'] = image
+    return values
+
+
 def sync_faculty(entries=None):
     """Bring the professor table in line with the official list. Returns a change summary."""
     entries = load_faculty() if entries is None else entries
@@ -44,50 +64,63 @@ def sync_faculty(entries=None):
     for p in existing:
         by_key.setdefault(name_key(p.name), p)
 
-    matched = set()
-    summary = {'added': 0, 'updated': 0, 'deactivated': 0, 'reactivated': 0}
+    pending = []
+    for entry in entries:
+        values = clean_entry(entry)
+        school = schools.get(entry.get('school')) if values else None
+        if school is None:
+            log.warning('Faculty entry skipped: %r', entry.get('name') if isinstance(entry, dict) else entry)
+            continue
+        pending.append((values, school))
 
-    def find(entry):
-        p = by_url.get(entry['profile_url']) or by_key.get(name_key(entry['name']))
-        if p and p.id not in matched:
-            return p
-        # Last resort: a near-identical name in the same school that nothing else claimed.
-        school = schools.get(entry['school'])
+    # Pass 1: exact matches (profile URL, then spelling-insensitive name) for everyone first,
+    # so a near-identical name can never claim a row that belongs to someone else.
+    matched = {}
+    unmatched = []
+    for values, school in pending:
+        p = by_url.get(values['profile_url']) or by_key.get(name_key(values['name']))
+        if p is not None and p.id not in matched:
+            matched[p.id] = (p, values, school)
+        else:
+            unmatched.append((values, school))
+
+    # Pass 2: near-identical names in the same school, among rows nothing claimed.
+    new = []
+    for values, school in unmatched:
         best, best_ratio = None, FUZZY_MATCH
         for candidate in existing:
-            if candidate.id in matched or (school and candidate.school_id != school.id):
+            if candidate.id in matched or candidate.school_id != school.id:
                 continue
-            ratio = SequenceMatcher(None, name_key(candidate.name), name_key(entry['name'])).ratio()
+            ratio = SequenceMatcher(None, name_key(candidate.name), name_key(values['name'])).ratio()
             if ratio >= best_ratio:
                 best, best_ratio = candidate, ratio
-        return best
-
-    for entry in entries:
-        school = schools.get(entry['school'])
-        if school is None:
-            log.warning('Unknown school %s for %s; skipped', entry['school'], entry['name'])
-            continue
-        values = {field: entry.get(field) for field in SYNCED_FIELDS}
-        p = find(entry)
-        if p is None:
-            p = Professor(school_id=school.id, active=True, **values)
-            db.session.add(p)
-            db.session.flush()
-            summary['added'] += 1
+        if best is not None:
+            matched[best.id] = (best, values, school)
         else:
-            changed = any(getattr(p, field) != value for field, value in values.items()) or p.school_id != school.id
-            for field, value in values.items():
-                setattr(p, field, value)
-            p.school_id = school.id
-            if not p.active:
-                p.active = True
-                summary['reactivated'] += 1
-            elif changed:
-                summary['updated'] += 1
-        matched.add(p.id)
+            new.append((values, school))
 
-    for p in existing:
-        if p.id not in matched and p.active:
+    summary = {'added': 0, 'updated': 0, 'deactivated': 0, 'reactivated': 0}
+    for p, values, school in matched.values():
+        changed = any(getattr(p, field) != value for field, value in values.items()) or p.school_id != school.id
+        for field, value in values.items():
+            setattr(p, field, value)
+        p.school_id = school.id
+        if not p.active:
+            p.active = True
+            summary['reactivated'] += 1
+        elif changed:
+            summary['updated'] += 1
+    for values, school in new:
+        db.session.add(Professor(school_id=school.id, active=True, **values))
+        summary['added'] += 1
+
+    leaving = [p for p in existing if p.id not in matched and p.active]
+    active_before = sum(1 for p in existing if p.active)
+    if active_before and len(leaving) > active_before * (1 - MIN_KEEP_SHARE):
+        log.error('Faculty sync would hide %s of %s professors; skipped hiding. Check data/faculty.json.',
+                  len(leaving), active_before)
+    else:
+        for p in leaving:
             p.active = False
             summary['deactivated'] += 1
 

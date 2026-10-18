@@ -5,6 +5,7 @@ import unicodedata
 
 from better_profanity import profanity
 from flask import Flask, jsonify, request
+from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import func, inspect, text
@@ -61,6 +62,9 @@ def review_rate_key():
 
 
 limiter = Limiter(key_func=get_remote_address, storage_uri=os.environ.get('RATELIMIT_STORAGE_URI', 'memory://'))
+compress = Compress()
+
+LONG_CACHE_SUFFIXES = ('.webp', '.jpg', '.png', '.ico', '.svg')
 
 
 def database_url():
@@ -142,6 +146,20 @@ def create_app(config=None):
 
     with app.app_context():
         init_db(seed_if_empty=app.config['SEED_IF_EMPTY'])
+
+    compress.init_app(app)
+
+    @app.after_request
+    def cache_headers(response):
+        # Images never change in place (new art gets a new name), so browsers may keep them.
+        # Pages, CSS and JS revalidate with their ETag so a deploy shows up at once.
+        if request.path.startswith('/api/'):
+            response.headers.setdefault('Cache-Control', 'no-store')
+        elif request.path.endswith(LONG_CACHE_SUFFIXES):
+            response.headers['Cache-Control'] = 'public, max-age=2592000'
+        else:
+            response.headers['Cache-Control'] = 'no-cache'
+        return response
 
     @app.after_request
     def security_headers(response):

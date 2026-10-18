@@ -5,13 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ADA Ratings · Rate your professors at ADA University</title>
   <meta name="description" content="Anonymous professor reviews by ADA University students, across all six schools.">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/ada_logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0a1f44">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,500;0,8..60,600;1,8..60,500&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="js/common.js"></script>
-  <script type="module" src="js/home.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/js/common.js"></script>
+  <script type="module" src="/js/home.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -31,7 +34,7 @@
     </div>
   </header>
 
-  <main id="main">
+  <main id="main" tabindex="-1">
     <section class="hero" aria-labelledby="hero-title">
       <div class="container">
         <span class="eyebrow"><span class="eyebrow-dot">ADA</span>Independent student reviews</span>
@@ -60,13 +63,13 @@
       </div>
 
       <div class="hero-visual">
-        <img src="/ada_campus.jpg" alt="ADA University campus" width="1920" height="630" fetchpriority="high">
+        <img src="/img/campus-1100.webp" srcset="/img/campus-1100.webp 1100w, /img/campus-1920.webp 1920w" sizes="(max-width: 1100px) 100vw, 1052px" alt="ADA University campus" width="1920" height="630" fetchpriority="high">
       </div>
       <div class="container">
         <ul class="hero-stats">
           <li><strong data-stat="schools">6</strong><span>Schools</span></li>
           <li><strong data-stat="professors">—</strong><span>Professors</span></li>
-          <li><strong data-stat="reviews">—</strong><span>Reviews</span></li>
+          <li><strong data-stat="reviews">100%</strong><span data-stat-label="reviews">Anonymous</span></li>
         </ul>
       </div>
     </section>
@@ -80,7 +83,7 @@
             <p>Pick a school to see its faculty, sorted by student ratings.</p>
           </div>
         </div>
-        <ul id="schools-grid" class="school-grid" aria-live="polite"></ul>
+        <ul id="schools-grid" class="school-grid"></ul>
       </div>
     </section>
 

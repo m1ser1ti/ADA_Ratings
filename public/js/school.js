@@ -20,10 +20,10 @@ const SORTS = {
 function renderHero() {
   const school = SCHOOLS[code];
   document.getElementById('school-code').textContent = code || 'School';
-  document.getElementById('crumb-school').textContent = code || 'School';
-  document.getElementById('school-name').textContent = school ? school.name : '';
-  document.getElementById('hero-img').src = school ? school.photo : FALLBACK_PHOTO;
-  if (code) document.title = `${code} professors · ADA Ratings`;
+  document.getElementById('crumb-school').textContent = school ? school.name : (code || 'School');
+  document.getElementById('school-name').textContent = school ? school.name : (code || 'School');
+  document.getElementById('hero-img').src = `${school ? school.photo : FALLBACK_PHOTO}-1600.webp`;
+  if (code) document.title = `${school ? school.name : code} · ADA Ratings`;
 
   const dean = school && school.dean;
   const deanEl = document.getElementById('dean');
@@ -81,17 +81,18 @@ async function loadProfessors() {
   grid.setAttribute('aria-busy', 'true');
   try {
     professors = await api(`/api/professors?school=${encodeURIComponent(code)}`);
-    renderStats();
-    renderList();
   } catch (err) {
     if (err.status === 404) {
       grid.innerHTML = emptyState('School not found', `There is no school with the code “${code}”.`);
     } else {
       errorState(grid, 'Could not load professors. Check your connection and try again.', loadProfessors);
     }
+    return;
   } finally {
     grid.removeAttribute('aria-busy');
   }
+  renderStats();
+  renderList();
 }
 
 filterInput.addEventListener('input', renderList);

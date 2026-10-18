@@ -4,13 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Professor · ADA Ratings</title>
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/ada_logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#0a1f44">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,500;0,8..60,600;1,8..60,500&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="js/common.js"></script>
-  <script type="module" src="js/professor.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/js/common.js"></script>
+  <script type="module" src="/js/professor.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -36,7 +39,7 @@
     </div>
   </header>
 
-  <main id="main">
+  <main id="main" tabindex="-1">
     <div class="container">
       <nav class="breadcrumbs breadcrumbs--light" aria-label="Breadcrumb">
         <ol>
@@ -45,6 +48,7 @@
           <li><span id="crumb-prof" aria-current="page">Professor</span></li>
         </ol>
       </nav>
+      <div id="page-status" class="visually-hidden" role="status" aria-live="polite"></div>
       <div id="professor" class="prof-layout">
         <div class="card skeleton" style="min-height:420px" aria-hidden="true"></div>
         <div class="prof-main">

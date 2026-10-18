@@ -1,9 +1,10 @@
 // Presentation data the API does not carry: each school's photo and dean.
+// `photo` is a base path; images exist at -800.webp (cards) and -1600.webp (heroes).
 
 export const SCHOOLS = {
   SPIA: {
     name: 'School of Public and International Affairs',
-    photo: '/spia_main_photo.jpg',
+    photo: '/img/spia',
     dean: {
       name: 'Azer Babayev',
       title: 'Dean, School of Public and International Affairs',
@@ -13,7 +14,7 @@ export const SCHOOLS = {
   },
   SITE: {
     name: 'School of IT and Engineering',
-    photo: '/site_main_photo.jpg',
+    photo: '/img/site',
     dean: {
       name: 'Abzatdin Adamov',
       title: 'Dean, School of IT and Engineering',
@@ -23,7 +24,7 @@ export const SCHOOLS = {
   },
   SB: {
     name: 'School of Business',
-    photo: '/sb_main_photo.jpg',
+    photo: '/img/sb',
     dean: {
       name: 'Huseyn Ismayilov',
       title: 'Dean, School of Business',
@@ -33,7 +34,7 @@ export const SCHOOLS = {
   },
   LAW: {
     name: 'School of Law',
-    photo: '/spia_law_main_photo.jpg',
+    photo: '/img/spia',
     dean: {
       name: 'Rashad Ibadov',
       title: 'Dean, School of Law',
@@ -43,7 +44,7 @@ export const SCHOOLS = {
   },
   SAFS: {
     name: 'School of Agricultural and Food Sciences',
-    photo: '/safs_main_photo.jpeg',
+    photo: '/img/safs',
     dean: {
       name: 'Matteo Vittuari',
       title: 'Dean, School of Agricultural and Food Sciences',
@@ -53,7 +54,7 @@ export const SCHOOLS = {
   },
   SDA: {
     name: 'School of Design and Architecture',
-    photo: '/sda_main_photo.jpg',
+    photo: '/img/sda',
     dean: {
       name: 'Silvia Ferraris',
       title: 'Dean, School of Design & Architecture',
@@ -63,4 +64,4 @@ export const SCHOOLS = {
   },
 };
 
-export const FALLBACK_PHOTO = '/ada_campus2.jpg';
+export const FALLBACK_PHOTO = '/img/campus-alt';

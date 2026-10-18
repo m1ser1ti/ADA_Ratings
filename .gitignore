@@ -24,3 +24,6 @@ ada_ratings.db
 Icon?
 ada-ratings/
 node_modules/
+
+# Local Claude Code settings
+.claude/

@@ -4,10 +4,13 @@ import {
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
 const grid = document.getElementById('schools-grid');
+const MIN_PUBLIC_REVIEW_COUNT = 25;
 
 function setStat(key, value) {
   const el = document.querySelector(`[data-stat="${key}"]`);
   if (el) el.textContent = value.toLocaleString('en-US');
+  const label = document.querySelector(`[data-stat-label="${key}"]`);
+  if (label) label.textContent = 'Reviews';
 }
 
 async function loadSchools() {
@@ -25,7 +28,7 @@ async function loadSchools() {
         <li>
           <a class="school-card" href="school.html?code=${encodeURIComponent(s.code)}">
             <div class="school-card-media">
-              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}" alt="" loading="lazy">
+              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}-800.webp" alt="" width="800" height="450" loading="lazy" decoding="async">
               <span class="school-code">${escapeHtml(s.code)}</span>
             </div>
             <div class="school-card-body">
@@ -41,8 +44,10 @@ async function loadSchools() {
 
     setStat('schools', schools.length);
     setStat('professors', schools.reduce((sum, s) => sum + s.professor_count, 0));
-    setStat('reviews', schools.reduce((sum, s) => sum + s.review_count, 0));
-  } catch (err) {
+    // A tiny review count reads as an empty site, so show it only once there is a real body of reviews.
+    const reviews = schools.reduce((sum, s) => sum + s.review_count, 0);
+    if (reviews >= MIN_PUBLIC_REVIEW_COUNT) setStat('reviews', reviews);
+  } catch {
     errorState(grid, 'Could not load schools. Check your connection and try again.', loadSchools);
   } finally {
     grid.removeAttribute('aria-busy');
@@ -71,7 +76,8 @@ async function loadTopRated() {
 document.getElementById('cta-search').addEventListener('click', event => {
   event.preventDefault();
   const input = document.getElementById('hero-search');
-  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  input.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
   input.focus({ preventScroll: true });
 });
 

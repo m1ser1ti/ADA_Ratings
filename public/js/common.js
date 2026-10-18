@@ -23,7 +23,15 @@ export function safeUrl(url) {
 }
 
 export async function api(path, options) {
-  const res = await fetch(path, options);
+  let res;
+  try {
+    res = await fetch(path, options);
+  } catch {
+    // fetch only rejects when the request never reached the server.
+    const error = new Error('No connection. Check your internet and try again.');
+    error.status = 0;
+    throw error;
+  }
   let body = null;
   try {
     body = await res.json();
@@ -100,7 +108,8 @@ export function ratingBadge(rating, size = '') {
     return `<span class="rating-badge r-none ${size}">No ratings</span>`;
   }
   const value = Number(rating).toFixed(1).replace(/\.0$/, '');
-  return `<span class="rating-badge ${ratingClass(rating)} ${size}" aria-label="Rated ${value} out of 10">${value}<small>/10</small></span>`;
+  // The visible "8/10" is hidden from screen readers, which hear the full phrase instead.
+  return `<span class="rating-badge ${ratingClass(rating)} ${size}"><span aria-hidden="true">${value}<small>/10</small></span><span class="visually-hidden">Rated ${value} out of 10</span></span>`;
 }
 
 export function starsMeter(rating) {
@@ -144,12 +153,13 @@ export function emptyState(title, text) {
 }
 
 export function errorState(container, message, retry) {
+  const tag = container.tagName === 'UL' || container.tagName === 'OL' ? 'li' : 'div';
   container.innerHTML = `
-    <li class="state error" role="alert">
+    <${tag} class="state error" role="alert">
       <h3>Something went wrong</h3>
       <p>${escapeHtml(message)}</p>
       <button type="button" class="btn btn-ghost">Try again</button>
-    </li>`;
+    </${tag}>`;
   container.querySelector('button').addEventListener('click', retry);
 }
 
@@ -172,8 +182,12 @@ export function setupSearch(root) {
   let professors = [];
   let matches = [];
   let active = -1;
+  let status = 'loading'; // 'loading' | 'ready' | 'failed'
 
-  allProfessors().then(found => { professors = found; }).catch(() => { /* search stays empty */ });
+  allProfessors()
+    .then(found => { professors = found; status = 'ready'; })
+    .catch(() => { status = 'failed'; })
+    .finally(() => { if (document.activeElement === input) render(); });
 
   function close() {
     list.hidden = true;
@@ -210,6 +224,10 @@ export function setupSearch(root) {
       (p.school || '').toLowerCase() === query
     ).slice(0, 8);
 
+    const emptyText = {
+      loading: 'Loading professors…',
+      failed: 'Search is unavailable right now. Try reloading the page.',
+    }[status] || 'No professors match your search';
     list.innerHTML = matches.length
       ? matches.map((p, i) => `
           <li id="${list.id}-opt-${i}" class="search-option" role="option" aria-selected="false" data-index="${i}">
@@ -220,12 +238,12 @@ export function setupSearch(root) {
             </div>
             ${ratingBadge(p.avg_rating)}
           </li>`).join('')
-      : '<li class="search-empty" role="presentation">No professors match your search</li>';
+      : `<li class="search-empty" role="option" aria-disabled="true">${emptyText}</li>`;
 
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
     active = -1;
-    if (live) live.textContent = matches.length ? `${plural(matches.length, 'result')} available` : 'No results';
+    if (live) live.textContent = matches.length ? `${plural(matches.length, 'result')} available` : emptyText;
   }, 120);
 
   input.addEventListener('input', render);
@@ -261,6 +279,10 @@ export function setupSearch(root) {
 
   document.addEventListener('click', event => {
     if (!root.contains(event.target)) close();
+  });
+  // Tabbing away closes the list too, not just clicking elsewhere.
+  root.addEventListener('focusout', event => {
+    if (!root.contains(event.relatedTarget)) close();
   });
 
   // Optional Search button: opens the highlighted (or first) match, else returns focus to the field.

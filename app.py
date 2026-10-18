@@ -4,9 +4,11 @@ import os
 import re
 import secrets
 import unicodedata
+from pathlib import Path
 
 from better_profanity import profanity
-from flask import Flask, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, redirect, request
+from markupsafe import escape
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -187,6 +189,33 @@ def rating_stats(school_id=None):
     return {pid: (round(float(avg), 1), count) for pid, avg, count in rows}
 
 
+SLUG_LETTERS = str.maketrans({'ə': 'e', 'ı': 'i', 'Ə': 'e', 'İ': 'i'})
+
+
+def slugify(name):
+    """'Fərid Ağayev' -> 'ferid-agayev': readable, ASCII-only URL words."""
+    ascii_name = unicodedata.normalize('NFKD', (name or '').translate(SLUG_LETTERS)).encode('ascii', 'ignore').decode()
+    return re.sub(r'[^a-z0-9]+', '-', ascii_name.lower()).strip('-')
+
+
+def professor_path(p):
+    slug = slugify(p.name)
+    return f'/professor/{p.id}-{slug}' if slug else f'/professor/{p.id}'
+
+
+def school_path(code):
+    return f'/school/{code}'
+
+
+def rating_stats_for(prof_id):
+    avg, count = (
+        db.session.query(func.avg(Review.rating), func.count(Review.id))
+        .filter(Review.professor_id == prof_id, Review.status == REVIEW_PUBLISHED)
+        .one()
+    )
+    return (round(float(avg), 1) if avg is not None else None), count
+
+
 def professor_summary(p, stats):
     avg, count = stats.get(p.id, (None, 0))
     if count < MIN_REVIEWS_FOR_AVERAGE:
@@ -199,6 +228,7 @@ def professor_summary(p, stats):
         'image_url': p.image_url,
         'profile_url': p.profile_url,
         'school': p.school.code,
+        'url': professor_path(p),
         'avg_rating': avg,
         'review_count': count,
     }
@@ -206,6 +236,44 @@ def professor_summary(p, stats):
 
 def iso(dt):
     return dt.isoformat() if dt is not None else None
+
+
+META_MARKER = '<!--META-->'
+DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews from ADA University students, across all six schools.'
+DEFAULT_OG_IMAGE = '/img/og-default.jpg'
+
+
+def site_url():
+    """Absolute origin for canonical and share links: SITE_URL in production, else this request's."""
+    return (os.environ.get('SITE_URL') or request.host_url).rstrip('/')
+
+
+def meta_tags(title, description, path, image=None, noindex=False):
+    url = site_url() + path
+    image = image if image and image.startswith('https://') else site_url() + (image or DEFAULT_OG_IMAGE)
+    tags = [
+        f'<title>{escape(title)}</title>',
+        f'<meta name="description" content="{escape(description)}">',
+        f'<link rel="canonical" href="{escape(url)}">',
+        '<meta property="og:site_name" content="ADA Ratings">',
+        '<meta property="og:type" content="website">',
+        f'<meta property="og:title" content="{escape(title)}">',
+        f'<meta property="og:description" content="{escape(description)}">',
+        f'<meta property="og:url" content="{escape(url)}">',
+        f'<meta property="og:image" content="{escape(image)}">',
+        '<meta name="twitter:card" content="summary_large_image">',
+    ]
+    if noindex:
+        tags.append('<meta name="robots" content="noindex">')
+    return '\n  '.join(tags)
+
+
+def render_page(app, filename, meta, status=200):
+    """A static page with its <title> replaced by page-specific tags, so link previews
+    (Telegram, WhatsApp, Instagram) and search engines see real content without running JS."""
+    html = (Path(app.static_folder) / filename).read_text(encoding='utf-8')
+    html = re.sub(r'<title>.*?</title>', '', html, count=1, flags=re.S).replace(META_MARKER, meta, 1)
+    return Response(html, status=status, mimetype='text/html')
 
 
 def create_app(config=None):
@@ -293,7 +361,81 @@ def create_app(config=None):
 
     @app.route('/')
     def index():
-        return app.send_static_file('index.html')
+        meta = meta_tags('ADA Ratings · Rate your professors at ADA University', DEFAULT_DESCRIPTION, '/')
+        return render_page(app, 'index.html', meta)
+
+    @app.route('/school/<code>')
+    def school_page(code):
+        school = School.query.filter_by(code=code.upper()).first()
+        if not school:
+            meta = meta_tags('School not found · ADA Ratings', DEFAULT_DESCRIPTION, request.path, noindex=True)
+            return render_page(app, 'school.html', meta, status=404)
+        if code != school.code:
+            return redirect(school_path(school.code), 301)
+        count = Professor.query.filter_by(school_id=school.id).count()
+        meta = meta_tags(
+            f'{school.name} professors · ADA Ratings',
+            f'Ratings and anonymous student reviews of {count} professors at the ADA University {school.name}.',
+            school_path(school.code),
+        )
+        return render_page(app, 'school.html', meta)
+
+    @app.route('/professor/<int:prof_id>')
+    @app.route('/professor/<int:prof_id>-<slug>')
+    def professor_page(prof_id, slug=None):
+        p = db.session.get(Professor, prof_id)
+        if not p:
+            meta = meta_tags('Professor not found · ADA Ratings', DEFAULT_DESCRIPTION, request.path, noindex=True)
+            return render_page(app, 'professor.html', meta, status=404)
+        if request.path != professor_path(p):
+            return redirect(professor_path(p), 301)
+        avg, count = rating_stats_for(p.id)
+        if count >= MIN_REVIEWS_FOR_AVERAGE:
+            rating = f'Rated {avg:g}/10 from {count} anonymous student reviews.'
+        elif count:
+            rating = f'{count} anonymous student review{"s" if count != 1 else ""} so far.'
+        else:
+            rating = 'No reviews yet — be the first to rate.'
+        role = ', '.join(part for part in (p.title, p.school.name) if part)
+        meta = meta_tags(f'{p.name} · ADA Ratings', f'{p.name}, {role} at ADA University. {rating}',
+                         professor_path(p), image=p.image_url)
+        return render_page(app, 'professor.html', meta)
+
+    # Old query-string links (already shared around) keep working.
+    @app.route('/professor.html')
+    def old_professor_link():
+        prof_id = request.args.get('id', type=int)
+        p = db.session.get(Professor, prof_id) if prof_id else None
+        return redirect(professor_path(p) if p else '/', 301)
+
+    @app.route('/school.html')
+    def old_school_link():
+        code = (request.args.get('code') or '').upper()
+        return redirect(school_path(code) if code else '/', 301)
+
+    @app.route('/robots.txt')
+    def robots():
+        body = f'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\n\nSitemap: {site_url()}/sitemap.xml\n'
+        return Response(body, mimetype='text/plain')
+
+    @app.route('/sitemap.xml')
+    def sitemap():
+        latest = dict(
+            db.session.query(Review.professor_id, func.max(Review.created_at))
+            .filter(Review.status == REVIEW_PUBLISHED)
+            .group_by(Review.professor_id)
+            .all()
+        )
+        base = site_url()
+        urls = [f'<url><loc>{base}/</loc></url>']
+        urls += [f'<url><loc>{base}{school_path(s.code)}</loc></url>' for s in School.query.order_by(School.id)]
+        for p in Professor.query.order_by(Professor.id):
+            stamp = latest.get(p.id)
+            lastmod = f'<lastmod>{stamp.date().isoformat()}</lastmod>' if stamp else ''
+            urls.append(f'<url><loc>{escape(base + professor_path(p))}</loc>{lastmod}</url>')
+        urls += [f'<url><loc>{base}/rules.html</loc></url>', f'<url><loc>{base}/privacy.html</loc></url>']
+        body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join(urls) + '</urlset>'
+        return Response(body, mimetype='application/xml')
 
     @app.route('/api/schools', methods=['GET'])
     def get_schools():

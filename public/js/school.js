@@ -1,9 +1,9 @@
 import {
-  api, emptyState, errorState, escapeHtml, plural, professorCard, queryParam, skeletons,
+  api, emptyState, errorState, escapeHtml, pathParam, plural, professorCard, skeletons,
 } from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
-const code = (queryParam('code') || '').toUpperCase();
+const code = (pathParam(/^\/school\/([^/]+)/) || '').toUpperCase();
 const grid = document.getElementById('prof-grid');
 const filterInput = document.getElementById('prof-filter');
 const sortSelect = document.getElementById('prof-sort');

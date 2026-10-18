@@ -1,13 +1,13 @@
 import {
   MIN_REVIEWS_FOR_AVERAGE, api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, plural,
-  queryParam, ratingBadge, safeUrl, starsMeter,
+  pathParam, ratingBadge, safeUrl, schoolUrl, starsMeter,
 } from './common.js';
 import { SCHOOLS } from './schools.js';
 
 const MIN_LENGTH = 10;
 const MAX_LENGTH = 5000;
 
-const profId = Number(queryParam('id'));
+const profId = Number(pathParam(/^\/professor\/(\d+)/));
 const root = document.getElementById('professor');
 // Lives outside #professor, so it survives re-renders and screen readers hear every update.
 const announcer = document.getElementById('page-status');
@@ -56,7 +56,7 @@ function renderProfile(p) {
       <h1 id="prof-name">${escapeHtml(p.name)}</h1>
       <p class="prof-title">${escapeHtml(p.title || '')}</p>
       <dl>
-        <div><dt>School</dt><dd><a href="school.html?code=${encodeURIComponent(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></dd></div>
+        <div><dt>School</dt><dd><a href="${schoolUrl(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></dd></div>
         ${p.specialization ? `<div><dt>Specialization</dt><dd>${escapeHtml(p.specialization)}</dd></div>` : ''}
       </dl>
       <a class="btn btn-gold btn-block" href="#review-form">Write a review</a>
@@ -178,7 +178,7 @@ function render() {
   document.title = `${p.name} · ADA Ratings`;
   const crumbSchool = document.getElementById('crumb-school');
   crumbSchool.textContent = p.school;
-  crumbSchool.href = `school.html?code=${encodeURIComponent(p.school)}`;
+  crumbSchool.href = schoolUrl(p.school);
   document.getElementById('crumb-prof').textContent = p.name;
 
   root.innerHTML = `

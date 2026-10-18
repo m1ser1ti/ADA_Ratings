@@ -382,3 +382,86 @@ def test_legacy_reviews_table_gains_moderation_columns(tmp_path):
 def test_rejected_review_does_not_use_up_the_daily_limit(client, prof_id):
     assert post_review(client, professor_id=prof_id, text='Ты му​дак и вообще').status_code == 400
     assert post_review(client, professor_id=prof_id).status_code == 201
+
+
+# ---------- Pages, links and previews ----------
+
+@pytest.mark.parametrize('name, slug', [
+    ('Ada Lovelace', 'ada-lovelace'),
+    ('Fərid Ağayev', 'ferid-agayev'),
+    ('İlkin Şükürov', 'ilkin-sukurov'),
+    ('Damjan Krnjević Mišković', 'damjan-krnjevic-miskovic'),
+])
+def test_slugify(name, slug):
+    from app import slugify
+    assert slugify(name) == slug
+
+
+def test_api_gives_each_professor_its_page_url(client, prof_id):
+    listed = {p['id']: p for p in client.get('/api/professors').get_json()}
+    assert listed[prof_id]['url'] == f'/professor/{prof_id}-ada-lovelace'
+
+
+def test_professor_page_has_link_preview_tags(client, prof_id):
+    res = client.get(f'/professor/{prof_id}-ada-lovelace')
+    html = res.get_data(as_text=True)
+    assert res.status_code == 200
+    assert '<title>Ada Lovelace · ADA Ratings</title>' in html
+    assert html.count('<title>') == 1
+    assert f'<link rel="canonical" href="http://localhost/professor/{prof_id}-ada-lovelace">' in html
+    assert '<meta property="og:title" content="Ada Lovelace · ADA Ratings">' in html
+    assert 'No reviews yet' in html
+    assert '<!--META-->' not in html
+
+
+def test_professor_page_redirects_to_its_canonical_slug(client, prof_id):
+    for path in (f'/professor/{prof_id}', f'/professor/{prof_id}-wrong-name', f'/professor.html?id={prof_id}'):
+        res = client.get(path)
+        assert res.status_code == 301, path
+        assert res.headers['Location'].endswith(f'/professor/{prof_id}-ada-lovelace')
+
+
+def test_unknown_pages_are_real_404s_and_not_indexed(client):
+    for path in ('/professor/999999-nobody', '/school/NOPE'):
+        res = client.get(path)
+        assert res.status_code == 404, path
+        assert '<meta name="robots" content="noindex">' in res.get_data(as_text=True)
+
+
+def test_school_page_and_old_links(client):
+    res = client.get('/school/SITE')
+    assert res.status_code == 200
+    assert 'School of IT and Engineering professors · ADA Ratings' in res.get_data(as_text=True)
+    assert client.get('/school/site').headers['Location'].endswith('/school/SITE')
+    assert client.get('/school.html?code=site').headers['Location'].endswith('/school/SITE')
+
+
+def test_preview_text_escapes_names(client, app):
+    from extensions import db
+    from models import Professor, School
+    with app.app_context():
+        school_id = School.query.first().id
+        p = Professor(name='Evil <script>alert(1)</script>', school_id=school_id)
+        db.session.add(p)
+        db.session.commit()
+        pid = p.id
+    html = client.get(f'/professor/{pid}-evil-script-alert-1-script').get_data(as_text=True)
+    assert '<script>alert(1)</script>' not in html
+    assert '&lt;script&gt;' in html
+
+
+def test_site_url_setting_drives_canonical_links(client, prof_id, monkeypatch):
+    monkeypatch.setenv('SITE_URL', 'https://ada-ratings.example/')
+    html = client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
+    assert f'href="https://ada-ratings.example/professor/{prof_id}-ada-lovelace"' in html
+    assert 'content="https://ada-ratings.example/img/og-default.jpg"' in html
+
+
+def test_sitemap_and_robots(client, prof_id):
+    sitemap = client.get('/sitemap.xml')
+    assert sitemap.mimetype == 'application/xml'
+    body = sitemap.get_data(as_text=True)
+    assert f'<loc>http://localhost/professor/{prof_id}-ada-lovelace</loc>' in body
+    assert '<loc>http://localhost/school/SITE</loc>' in body
+    robots = client.get('/robots.txt').get_data(as_text=True)
+    assert 'Disallow: /api/' in robots and 'Sitemap: http://localhost/sitemap.xml' in robots

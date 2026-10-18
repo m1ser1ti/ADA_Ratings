@@ -10,8 +10,14 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-export function queryParam(name) {
-  return new URLSearchParams(window.location.search).get(name);
+// The first capture group of `pattern` in the current path, e.g. the 12 in /professor/12-ada-lovelace.
+export function pathParam(pattern) {
+  const match = window.location.pathname.match(pattern);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function schoolUrl(code) {
+  return `/school/${encodeURIComponent(code)}`;
 }
 
 export function plural(n, word) {
@@ -123,7 +129,7 @@ export function starsMeter(rating) {
 export function professorCard(p) {
   return `
     <li>
-      <a class="prof-card" href="professor.html?id=${encodeURIComponent(p.id)}">
+      <a class="prof-card" href="${escapeHtml(p.url)}">
         <div class="prof-card-top">
           ${avatarImg(p)}
           <div>
@@ -211,7 +217,7 @@ export function setupSearch(root) {
   }
 
   function go(p) {
-    window.location.href = `professor.html?id=${encodeURIComponent(p.id)}`;
+    window.location.href = p.url;
   }
 
   const render = debounce(() => {

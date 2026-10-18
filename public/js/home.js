@@ -1,5 +1,5 @@
 import {
-  allProfessors, api, emptyState, errorState, escapeHtml, plural, professorCard, skeletons,
+  allProfessors, api, emptyState, errorState, escapeHtml, plural, professorCard, schoolUrl, skeletons,
 } from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
@@ -26,7 +26,7 @@ async function loadSchools() {
       const extra = SCHOOLS[s.code] || {};
       return `
         <li>
-          <a class="school-card" href="school.html?code=${encodeURIComponent(s.code)}">
+          <a class="school-card" href="${schoolUrl(s.code)}">
             <div class="school-card-media">
               <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}-800.webp" alt="" width="800" height="450" loading="lazy" decoding="async">
               <span class="school-code">${escapeHtml(s.code)}</span>

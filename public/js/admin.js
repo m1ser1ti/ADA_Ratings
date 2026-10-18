@@ -43,7 +43,7 @@ function reviewItem(r) {
     <li class="review admin-review" data-id="${r.id}">
       <div class="review-meta">
         ${ratingBadge(r.rating)}
-        <a href="/professor.html?id=${r.professor.id}">${escapeHtml(r.professor.name)}</a>
+        <a href="/professor/${r.professor.id}">${escapeHtml(r.professor.name)}</a>
         ${r.created_at ? `<time datetime="${escapeHtml(r.created_at)}">${escapeHtml(formatDate(r.created_at))}</time>` : ''}
         <span class="admin-badge admin-badge--${escapeHtml(r.status)}">${escapeHtml(r.status)}</span>
       </div>

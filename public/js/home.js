@@ -1,5 +1,6 @@
 import {
-  allProfessors, api, emptyState, errorState, escapeHtml, plural, professorCard, schoolUrl, skeletons,
+  allProfessors, api, emptyState, errorState, escapeHtml, formatDate, plural, professorCard, ratingBadge, schoolUrl,
+  skeletons,
 } from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
@@ -73,6 +74,33 @@ async function loadTopRated() {
   }
 }
 
+// Fresh reviews make the site feel alive; the section stays hidden until there are some.
+async function loadRecent() {
+  const section = document.getElementById('recent');
+  let reviews;
+  try {
+    reviews = await api('/api/reviews/recent?limit=6');
+  } catch {
+    return; // optional section
+  }
+  if (!reviews.length) return;
+  document.getElementById('recent-list').innerHTML = reviews.map(r => `
+    <li>
+      <article class="recent-card">
+        <div class="review-meta">
+          ${ratingBadge(r.rating)}
+          ${r.created_at ? `<time datetime="${escapeHtml(r.created_at)}">${escapeHtml(formatDate(r.created_at))}</time>` : ''}
+        </div>
+        <p class="recent-text">${escapeHtml(r.text)}</p>
+        <a class="recent-prof" href="${escapeHtml(r.professor.url)}">
+          <span>${escapeHtml(r.professor.name)}</span>
+          <span class="recent-school">${escapeHtml(r.professor.school)}</span>
+        </a>
+      </article>
+    </li>`).join('');
+  section.hidden = false;
+}
+
 document.getElementById('cta-search').addEventListener('click', event => {
   event.preventDefault();
   const input = document.getElementById('hero-search');
@@ -82,4 +110,5 @@ document.getElementById('cta-search').addEventListener('click', event => {
 });
 
 loadSchools();
+loadRecent();
 loadTopRated();

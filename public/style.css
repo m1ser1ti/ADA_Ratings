@@ -986,6 +986,59 @@ p { margin: 0; text-wrap: pretty; }
 .review p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .review.is-new { border-color: var(--gold-500); box-shadow: 0 0 0 3px var(--gold-50); }
 
+/* ---------- Recent reviews ---------- */
+
+.recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin: 0; padding: 0;
+  list-style: none;
+}
+.recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+.recent-card .review-meta { margin: 0; }
+.recent-text {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.recent-prof {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--navy-800);
+  text-decoration: none;
+}
+.recent-prof:hover span:first-child { text-decoration: underline; }
+.recent-school {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 /* ---------- Reporting ---------- */
 
 .review-report {
@@ -1214,7 +1267,7 @@ p { margin: 0; text-wrap: pretty; }
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1024px) {
-  .school-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .school-grid, .recent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -1246,7 +1299,7 @@ p { margin: 0; text-wrap: pretty; }
   .hero-stats li { padding: 14px 8px; }
   .hero-stats strong { font-size: 1.5rem; }
   .section { padding: 56px 0; }
-  .school-grid { grid-template-columns: 1fr; }
+  .school-grid, .recent-grid { grid-template-columns: 1fr; }
   .cta-band { padding: 32px 24px; }
   .cta-band .btn { width: 100%; }
   .page-hero .container { padding-bottom: 72px; }

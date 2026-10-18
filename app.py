@@ -30,6 +30,7 @@ MIN_REVIEWS_FOR_AVERAGE = 3
 # This many reports take a review off the site until a moderator looks at it.
 REPORTS_TO_HIDE = 3
 REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'other')
+RECENT_EXCERPT = 240
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -551,6 +552,25 @@ def create_app(config=None):
                 'created_at': iso(review.created_at),
             },
         }), 201
+
+    @app.route('/api/reviews/recent', methods=['GET'])
+    def recent_reviews():
+        limit = min(max(request.args.get('limit', 6, type=int), 1), 20)
+        reviews = (
+            Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
+            .filter(Review.status == REVIEW_PUBLISHED)
+            .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify([{
+            'id': r.id,
+            'rating': r.rating,
+            # The feed shows a teaser; the full text is on the professor's page.
+            'text': r.text if len(r.text) <= RECENT_EXCERPT else r.text[:RECENT_EXCERPT].rstrip() + '…',
+            'created_at': iso(r.created_at),
+            'professor': {'name': r.professor.name, 'url': professor_path(r.professor), 'school': r.professor.school.code},
+        } for r in reviews])
 
     @app.route('/api/reviews/<int:review_id>/report', methods=['POST'])
     @limiter.limit('20 per day', key_func=device_key, deduct_when=created)

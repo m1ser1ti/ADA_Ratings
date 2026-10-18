@@ -465,3 +465,21 @@ def test_sitemap_and_robots(client, prof_id):
     assert '<loc>http://localhost/school/SITE</loc>' in body
     robots = client.get('/robots.txt').get_data(as_text=True)
     assert 'Disallow: /api/' in robots and 'Sitemap: http://localhost/sitemap.xml' in robots
+
+
+def test_recent_reviews_feed(app, client, prof_id):
+    long_text = 'Great course. ' * 40
+    post_review(client, professor_id=prof_id, text='First review of the course.')
+    post_review(new_browser(app), professor_id=prof_id, text=long_text)
+    feed = client.get('/api/reviews/recent').get_json()
+    assert [r['text'][:12] for r in feed] == ['Great course', 'First review']
+    assert feed[0]['text'].endswith('…') and len(feed[0]['text']) <= 241
+    assert feed[0]['professor'] == {'name': 'Ada Lovelace', 'url': f'/professor/{prof_id}-ada-lovelace', 'school': 'SITE'}
+    assert len(client.get('/api/reviews/recent?limit=1').get_json()) == 1
+
+
+def test_recent_feed_skips_hidden_reviews(app, client, prof_id):
+    review_id = published_review(client, prof_id)
+    for _ in range(3):
+        report(new_browser(app), review_id)
+    assert client.get('/api/reviews/recent').get_json() == []

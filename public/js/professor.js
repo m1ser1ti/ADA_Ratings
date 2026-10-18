@@ -60,6 +60,10 @@ function renderProfile(p) {
         ${p.specialization ? `<div><dt>Specialization</dt><dd>${escapeHtml(p.specialization)}</dd></div>` : ''}
       </dl>
       <a class="btn btn-gold btn-block" href="#review-form">Write a review</a>
+      <button type="button" class="btn btn-ghost btn-block" id="share-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
+        <span>Share</span>
+      </button>
       ${profile ? `<a class="btn btn-ghost btn-block" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
     </section>`;
 }
@@ -191,10 +195,36 @@ function render() {
   root.removeAttribute('aria-busy');
   bindForm();
   bindReports();
+  bindShare();
   document.getElementById('review-sort')?.addEventListener('change', event => {
     const sort = event.target.value;
     document.getElementById('review-list').innerHTML = renderReviewItems(professor.reviews, sort);
     announce(`Reviews sorted, ${SORT_LABELS[sort]}.`);
+  });
+}
+
+function bindShare() {
+  const button = document.getElementById('share-btn');
+  const label = button.querySelector('span');
+  button.addEventListener('click', async () => {
+    // The canonical link is the clean /professor/<id>-<slug> address the server put in <head>.
+    const url = document.querySelector('link[rel="canonical"]')?.href || window.location.href;
+    const title = `${professor.name} · ADA Ratings`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: `Student reviews of ${professor.name} at ADA University`, url });
+      } catch { /* the user closed the share sheet */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this link:', url);
+      return;
+    }
+    label.textContent = 'Link copied';
+    announce('Link copied to the clipboard.');
+    setTimeout(() => { label.textContent = 'Share'; }, 2000);
   });
 }
 

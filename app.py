@@ -1,6 +1,8 @@
+import ipaddress
 import logging
 import os
 import re
+import secrets
 import unicodedata
 
 from better_profanity import profanity
@@ -9,6 +11,7 @@ from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import func, inspect, text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -54,14 +57,58 @@ def is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def review_rate_key():
-    """One review per professor per client: the client's address plus the professor it targets."""
+CLIENT_COOKIE = 'ada_client'
+CLIENT_COOKIE_MAX_AGE = 365 * 24 * 3600
+
+
+def network_key():
+    """The client's network: its IPv4 address, or its /64 for IPv6.
+
+    One IPv6 customer usually owns a whole /64, so keying on the full address would hand
+    a single person billions of fresh rate-limit buckets.
+    """
+    addr = get_remote_address()
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return addr
+    if ip.version == 6:
+        return str(ipaddress.ip_network(f'{ip}/64', strict=False))
+    return str(ip)
+
+
+def device_key():
+    """The browser's anonymous id cookie, or the network when there is none.
+
+    Students on the campus Wi-Fi share one public address, so per-person limits must not
+    be per-address. The cookie is trivially cleared, which is why the network keeps its own,
+    looser ceiling.
+    """
+    token = request.cookies.get(CLIENT_COOKIE, '')
+    return f'device:{token}' if is_client_token(token) else f'net:{network_key()}'
+
+
+def is_client_token(token):
+    return isinstance(token, str) and len(token) == 32 and all(c in '0123456789abcdef' for c in token)
+
+
+def json_professor_id():
     data = request.get_json(silent=True)
-    prof_id = data.get('professor_id') if isinstance(data, dict) else None
-    return f'{get_remote_address()}:{prof_id}'
+    return data.get('professor_id') if isinstance(data, dict) else None
 
 
-limiter = Limiter(key_func=get_remote_address, storage_uri=os.environ.get('RATELIMIT_STORAGE_URI', 'memory://'))
+def review_rate_key():
+    """One review per professor per device."""
+    return f'{device_key()}:{json_professor_id()}'
+
+
+def professor_rate_key():
+    """All reviews of one professor, from anyone: blunts a coordinated pile-on."""
+    return f'professor:{json_professor_id()}'
+
+
+RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
+limiter = Limiter(key_func=network_key, storage_uri=RATELIMIT_STORAGE_URI)
 compress = Compress()
 
 LONG_CACHE_SUFFIXES = ('.webp', '.jpg', '.png', '.ico', '.svg')
@@ -75,12 +122,16 @@ def database_url():
 
 
 def upgrade_schema():
-    """Bring tables created by older versions up to date (create_all never alters a table)."""
+    """Bring tables created by older versions up to date (create_all never alters a table).
+
+    The index statements matter only for databases created before those columns were
+    indexed: create_all never adds an index to a table that already exists.
+    """
     columns = {c['name'] for c in inspect(db.engine).get_columns('review')}
     with db.engine.begin() as conn:
         if 'created_at' not in columns:
             log.info('Adding review.created_at')
-            conn.execute(text('ALTER TABLE review ADD COLUMN created_at TIMESTAMP'))
+            conn.execute(text('ALTER TABLE review ADD COLUMN created_at TIMESTAMP WITH TIME ZONE'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
@@ -92,17 +143,22 @@ def init_db(seed_if_empty=True):
     if seed_if_empty and db.session.query(School.id).first() is None:
         log.info('Database is empty, seeding...')
         from seed import seed
-        seed()
+        try:
+            seed()
+        except IntegrityError:
+            # Another process seeded first (school codes are unique): keep its data.
+            db.session.rollback()
+            log.info('Database was seeded by another process')
+            return
         log.info('Seeding complete')
 
 
-def rating_stats():
+def rating_stats(school_id=None):
     """{professor_id: (avg, count)} for every professor with reviews, in one query."""
-    rows = (
-        db.session.query(Review.professor_id, func.avg(Review.rating), func.count(Review.id))
-        .group_by(Review.professor_id)
-        .all()
-    )
+    query = db.session.query(Review.professor_id, func.avg(Review.rating), func.count(Review.id))
+    if school_id is not None:
+        query = query.join(Professor, Professor.id == Review.professor_id).filter(Professor.school_id == school_id)
+    rows = query.group_by(Review.professor_id).all()
     return {pid: (round(float(avg), 1), count) for pid, avg, count in rows}
 
 
@@ -131,7 +187,8 @@ def create_app(config=None):
         SQLALCHEMY_DATABASE_URI=database_url(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS={'pool_pre_ping': True},
-        MAX_CONTENT_LENGTH=16 * 1024,
+        # 5000 characters of Cyrillic or Azerbaijani text is about 10 KB of UTF-8, plus JSON escapes.
+        MAX_CONTENT_LENGTH=32 * 1024,
         SEED_IF_EMPTY=True,
     )
     if config:
@@ -143,9 +200,18 @@ def create_app(config=None):
 
     db.init_app(app)
     limiter.init_app(app)
+    if RATELIMIT_STORAGE_URI == 'memory://' and not app.config.get('TESTING'):
+        log.warning('Rate limits are kept in memory: they reset on restart and are per process. '
+                    'Set RATELIMIT_STORAGE_URI (e.g. a Redis URL) in production.')
 
     with app.app_context():
         init_db(seed_if_empty=app.config['SEED_IF_EMPTY'])
+
+    @app.cli.command('init-db')
+    def init_db_command():
+        """Create tables, apply schema upgrades and seed an empty database."""
+        init_db(seed_if_empty=True)
+        print('Database ready.')
 
     compress.init_app(app)
 
@@ -162,7 +228,20 @@ def create_app(config=None):
         return response
 
     @app.after_request
+    def client_cookie(response):
+        # Anonymous, random and not tied to any review: only lets rate limits tell
+        # two students on the same campus network apart.
+        if not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
+            response.set_cookie(
+                CLIENT_COOKIE, secrets.token_hex(16), max_age=CLIENT_COOKIE_MAX_AGE,
+                secure=request.is_secure, httponly=True, samesite='Lax',
+            )
+        return response
+
+    @app.after_request
     def security_headers(response):
+        if request.is_secure:
+            response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')
         response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
@@ -176,6 +255,14 @@ def create_app(config=None):
             return err
         messages = {429: 'Too many reviews, please try again later', 413: 'Request is too large'}
         return jsonify({'error': messages.get(err.code, err.description)}), err.code
+
+    @app.errorhandler(SQLAlchemyError)
+    def database_error(err):
+        db.session.rollback()
+        log.exception('Database error on %s %s', request.method, request.path)
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Something went wrong on our side. Please try again.'}), 500
+        return 'Something went wrong on our side. Please try again.', 500
 
     @app.route('/')
     def index():
@@ -207,12 +294,14 @@ def create_app(config=None):
     def get_professors():
         query = Professor.query.options(joinedload(Professor.school)).order_by(Professor.name)
         school_code = request.args.get('school')
+        school_id = None
         if school_code:
             school = School.query.filter_by(code=school_code).first()
             if not school:
                 return jsonify({'error': 'School not found'}), 404
-            query = query.filter(Professor.school_id == school.id)
-        stats = rating_stats()
+            school_id = school.id
+            query = query.filter(Professor.school_id == school_id)
+        stats = rating_stats(school_id)
         return jsonify([professor_summary(p, stats) for p in query.all()])
 
     @app.route('/api/professors/<int:prof_id>', methods=['GET'])
@@ -241,8 +330,13 @@ def create_app(config=None):
         })
 
     @app.route('/api/reviews', methods=['POST'])
-    @limiter.limit('5 per hour;20 per day')
+    # Per network: generous, since a whole campus can sit behind one address.
+    @limiter.limit('60 per hour;300 per day')
+    # Per device: the real per-person limits.
+    @limiter.limit('5 per hour;20 per day', key_func=device_key)
     @limiter.limit('1 per day', key_func=review_rate_key)
+    # Per professor, from everyone together.
+    @limiter.limit('20 per hour', key_func=professor_rate_key)
     def add_review():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
@@ -297,4 +391,5 @@ app = create_app()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Local development only; production runs gunicorn from the Procfile.
+    app.run(host=os.environ.get('HOST', '127.0.0.1'), port=port, debug=False)

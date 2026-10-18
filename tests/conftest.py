@@ -36,7 +36,10 @@ def app():
 
 @pytest.fixture
 def client(app):
-    return app.test_client()
+    """A browser that has opened the site once, so it holds the anonymous client cookie."""
+    client = app.test_client()
+    client.get('/api/schools')
+    return client
 
 
 @pytest.fixture

@@ -556,19 +556,28 @@ def create_app(config=None):
             )
         return response
 
-    # Old domains (REDIRECT_HOSTS, comma separated) send visitors and search engines to SITE_URL.
-    # Only reads move: a POST would lose its body on a 301, so API writes keep working on the old host.
+    # Old domains (REDIRECT_HOSTS, comma separated) explain the move to SITE_URL on every page,
+    # then forward the visitor to the same page there. Styles, images and the API keep working on
+    # the old host, so the notice renders and the AI moderator is not cut off mid-switch.
     legacy_hosts = {h.strip().lower() for h in os.environ.get('REDIRECT_HOSTS', '').split(',') if h.strip()}
+    moved_page = Path(app.root_path, 'moved.html').read_text(encoding='utf-8')
 
     @app.before_request
-    def legacy_domain_redirect():
+    def legacy_domain_notice():
         site_url = os.environ.get('SITE_URL', '').rstrip('/')
         if not (legacy_hosts and site_url) or request.method not in ('GET', 'HEAD'):
             return None
         if request.host.split(':')[0].lower() not in legacy_hosts:
             return None
+        is_page = (request.path == '/' or request.path.endswith('.html')
+                   or request.path.startswith(('/school/', '/professor/')))
+        if not is_page:
+            return None
         path = request.full_path if request.query_string else request.path
-        return redirect(site_url + path, code=301)
+        html = moved_page.replace('__TARGET__', str(escape(site_url + path)))
+        response = Response(html, mimetype='text/html')
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.before_request
     def blocked_visitors():

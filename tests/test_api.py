@@ -1615,16 +1615,21 @@ def test_faculty_sync_adds_missing_schools(app):
         assert se.name == 'School of Education' and len(se.professors) == 10
 
 
-def test_old_domain_redirects_reads_to_site_url(monkeypatch):
+def test_old_domain_shows_moved_notice(monkeypatch):
     monkeypatch.setenv('SITE_URL', 'https://www.profscope.example/')
     monkeypatch.setenv('REDIRECT_HOSTS', 'www.adaratings.example, adaratings.example')
     old = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite://',
                       'SEED_IF_EMPTY': False, 'SYNC_FACULTY': False}).test_client()
 
     page = old.get('/school/SITE?sort=rating', base_url='https://www.adaratings.example')
-    assert page.status_code == 301
-    assert page.headers['Location'] == 'https://www.profscope.example/school/SITE?sort=rating'
-    assert old.get('/', base_url='https://adaratings.example').headers['Location'] == 'https://www.profscope.example/'
-    # The new domain and writes on the old one are served as usual.
-    assert old.get('/robots.txt', base_url='https://www.profscope.example').status_code == 200
-    assert old.post('/api/reviews', json={}, base_url='https://www.adaratings.example').status_code != 301
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'ADA Ratings is now <strong>ProfScope</strong>' in html
+    assert 'href="https://www.profscope.example/school/SITE?sort=rating"' in html
+    assert 'url=https://www.profscope.example/school/SITE?sort=rating' in html
+    assert '__TARGET__' not in html
+    assert 'url=https://www.profscope.example/' in old.get('/', base_url='https://adaratings.example').get_data(as_text=True)
+    # Styles, the API and the new domain are served as usual.
+    assert old.get('/style.css', base_url='https://www.adaratings.example').status_code == 200
+    assert old.get('/api/schools', base_url='https://www.adaratings.example').status_code == 200
+    assert 'now ProfScope' not in old.get('/', base_url='https://www.profscope.example').get_data(as_text=True)

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd LaunchAgent for the ADA Ratings AI moderator.
+  This is a template: install-macos.sh fills in __PYTHON__, __SCRIPT__, __WORKDIR__ and __HOME__
+  and writes the result to ~/Library/LaunchAgents/net.adaratings.moderator.plist.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>net.adaratings.moderator</string>
+
+  <!-- caffeinate -i keeps the Mac from idle-sleeping while the moderator runs. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-i</string>
+    <string>__PYTHON__</string>
+    <string>__SCRIPT__</string>
+    <string>--quiet</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKDIR__</string>
+
+  <!-- Start at login and restart if it ever exits. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- The script logs to ~/Library/Logs/ada-ratings-moderator.log itself (rotating);
+       this file only catches crashes and anything printed outside the logger. -->
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/ada-ratings-moderator.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/ada-ratings-moderator.launchd.log</string>
+</dict>
+</plist>

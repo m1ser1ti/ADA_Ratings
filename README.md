@@ -83,3 +83,24 @@ To restore, run once with the same variables: `flask --app app restore-from-back
 ## Security
 
 Please report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
+
+## AI moderation
+
+Every published review with text is also checked by an AI model that runs **on a Mac, not in the cloud**: `moderator/ai_moderator.py` (Python standard library only) asks the site for reviews the AI has not checked yet (`GET /api/moderation/queue`), lets a local [Ollama](https://ollama.com) model (`qwen3:14b` by default) judge each one against the [review rules](public/rules.html), and sends back the verdict (`POST /api/moderation/reviews/<id>`). Review text goes only from the site to that Mac and its local model; it never reaches a third-party AI service.
+
+- **ok:** the review stays. Harsh but honest criticism of the teaching is kept.
+- **remove:** the review is hidden, not deleted, and a moderator can restore it from `/admin.html`.
+- **remove + ban:** for severe cases only (threats, hate, sexual harassment, personal data, obscene insults), the author's browser is also blocked. Bans can be lifted from the admin page.
+
+The server needs `MODERATOR_TOKEN` (or `ADMIN_TOKEN`) set; the Mac uses the same value.
+
+```bash
+ollama pull qwen3:14b                       # once; Ollama must be running
+bash moderator/install-macos.sh             # LaunchAgent: starts at login, restarts, keeps the Mac awake
+nano ~/.config/ada-ratings/moderator.env    # paste MODERATOR_TOKEN= (file is chmod 600)
+bash moderator/uninstall-macos.sh           # stop and remove the agent (settings and logs are kept)
+```
+
+The env file also takes `SITE_URL`, `OLLAMA_URL`, `OLLAMA_MODEL` and `POLL_SECONDS` (default 60). Changes are picked up without a restart. To try it by hand: `python3 moderator/ai_moderator.py --once --dry-run` classifies the queue and prints the verdicts without changing anything.
+
+Logs: `~/Library/Logs/ada-ratings-moderator.log` (rotating); crashes land in `~/Library/Logs/ada-ratings-moderator.launchd.log`.

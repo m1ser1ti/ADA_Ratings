@@ -359,10 +359,7 @@ button, input, select, textarea { font: inherit; letter-spacing: inherit; }
 }
 
 .header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
-.header-cta { min-height: 40px; padding: 0 18px; font-size: 15px; font-weight: 600; }
 .mobile-cta-link { margin: 4px 0 8px; }
-/* A professor page has its own "Write a review" button right below the header. */
-body:has(.prof-header) .header-cta { display: none; }
 @media (min-width: 961px) { .mobile-cta-link { display: none; } }
 .site-header .search { margin-left: auto; }
 .site-header .search + .header-actions { margin-left: 0; }
@@ -489,7 +486,7 @@ body:has(.prof-header) .header-cta { display: none; }
 
 /* ---------- Search combobox ---------- */
 
-.search { position: relative; flex: 1; max-width: 300px; }
+.search { position: relative; flex: 1; max-width: 360px; }
 .search-icon {
   position: absolute;
   left: 13px; top: 50%;
@@ -1467,16 +1464,11 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
   .prof-columns { grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; }
 }
 
-@media (max-width: 1140px) {
-  .site-header-inner:has(.search) .header-cta { display: none; }
-}
-
 /* Tablets and small laptops: the nav links move into the menu. */
 @media (max-width: 960px) {
   :root { --gutter: 20px; }
   .header-nav { display: none; }
   .menu-toggle { display: inline-grid; }
-  .header-cta { display: none; }
   .steps { grid-template-columns: 1fr; gap: 32px; }
   .prof-columns { grid-template-columns: 1fr; }
   .review-form { position: static; }

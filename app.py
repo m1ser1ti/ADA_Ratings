@@ -423,7 +423,7 @@ def iso(dt):
 
 
 META_MARKER = '<!--META-->'
-DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews written by students, across all seven schools.'
+DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews written by students, across all schools and programs.'
 DEFAULT_OG_IMAGE = '/img/og-v3.jpg'
 
 

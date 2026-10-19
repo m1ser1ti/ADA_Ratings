@@ -38,6 +38,16 @@ export const SCHOOLS = {
     art: { from: '#0b2a3c', to: '#13607a', glow: '#7fd6f0', pattern: 'rings' },
     icon: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/><path d="M22 9v6"/>',
   },
+  EAPP: {
+    name: 'English for Academic and Professional Purposes',
+    art: { from: '#1f1238', to: '#4b2a86', glow: '#b9a2ff', pattern: 'contours' },
+    icon: '<path d="M4 5h11a3 3 0 0 1 3 3v11H7a3 3 0 0 1-3-3z"/><path d="M8 9h6M8 13h4"/><path d="M18 8h2v11"/>',
+  },
+  FP: {
+    name: 'Foundation Program',
+    art: { from: '#2a0f0a', to: '#8a3b1d', glow: '#ffb089', pattern: 'columns' },
+    icon: '<path d="M4 20h16"/><path d="M6 20v-6h4v6M14 20V9h4v11"/><path d="M5 10l7-6 7 6"/>',
+  },
 };
 
 // Unknown codes still get a calm navy tile.

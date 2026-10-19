@@ -295,7 +295,7 @@ def test_seed_data_is_consistent():
     seeded = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite://', 'SEED_IF_EMPTY': True})
     with seeded.app_context():
         codes = {s.code for s in School.query.all()}
-        assert codes == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE'}
+        assert codes == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE', 'EAPP', 'FP'}
         names = [p.name for p in Professor.query.all()]
         assert len(names) == len(set(names)), 'duplicate professor names in seed data'
         assert all(p.school_id for p in Professor.query.all())
@@ -790,7 +790,7 @@ def test_shipped_faculty_file_is_valid():
     from faculty import load_faculty
     entries = load_faculty()
     assert len(entries) >= 100
-    assert {e['school'] for e in entries} == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE'}
+    assert {e['school'] for e in entries} == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE', 'EAPP', 'FP'}
     assert len({e['profile_url'] for e in entries}) == len(entries)
     for e in entries:
         assert e['name'] and e['profile_url'].startswith('https://www.ada.edu.az/')

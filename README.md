@@ -18,7 +18,7 @@
 
 ## Features
 
-- **140 professors** across all seven schools (SPIA, SITE, SB, LAW, SAFS, SDA, SE), kept in sync with the official faculty pages on ada.edu.az
+- **140 professors** across all schools and programs (SPIA, SITE, SB, LAW, SAFS, SDA, SE, EAPP, Foundation), kept in sync with the official faculty pages on ada.edu.az
 - **Anonymous reviews** with a 1–10 rating, course code, difficulty, "would take again" and tags
 - **Moderation:** profanity filter (English, Russian, Azerbaijani), reports from different networks hide a review until a moderator checks it, private admin queue
 - **Abuse protection:** per-browser, per-network and per-professor rate limits backed by Redis

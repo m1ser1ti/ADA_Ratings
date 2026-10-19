@@ -11,6 +11,8 @@ def seed():
         School(code='SAFS', name='School of Agricultural and Food Sciences'),
         School(code='SDA',  name='School of Design and Architecture'),
         School(code='SE',   name='School of Education'),
+        School(code='EAPP', name='English for Academic and Professional Purposes'),
+        School(code='FP',   name='Foundation Program'),
     ]
     db.session.add_all(schools)
     db.session.commit()

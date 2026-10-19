@@ -10,8 +10,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
-  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="preload" href="/fonts/source-serif-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/js/common.js"></script>
@@ -70,13 +69,13 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="container">
         <span class="eyebrow"><span class="eyebrow-dot">ADA</span>Independent student reviews</span>
-        <h1 id="hero-title">Choose your professors with <em>confidence</em></h1>
+        <h1 id="hero-title">Choose your professors with&nbsp;<em>confidence</em></h1>
         <p class="hero-lead">Honest, anonymous ratings from ADA University students. Look up a professor before you register for courses.</p>
 
         <div class="search search--hero" role="search">
           <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <label for="hero-search" class="visually-hidden">Search professors</label>
-          <input id="hero-search" class="search-input" type="search" placeholder="Search by professor name or subject…"
+          <input id="hero-search" class="search-input" type="search" placeholder="Search professors or subjects…"
             autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="hero-search-results">
           <button type="button" class="search-submit">Search</button>
           <ul id="hero-search-results" class="search-results" role="listbox" aria-label="Professors" hidden></ul>
@@ -92,21 +91,24 @@
           <li><a class="chip" href="/school/SAFS">SAFS</a></li>
           <li><a class="chip" href="/school/SDA">SDA</a></li>
         </ul>
-      </div>
 
-      <div class="hero-visual">
-        <img src="/img/campus-1100.webp" srcset="/img/campus-1100.webp 1100w, /img/campus-1920.webp 1920w" sizes="(max-width: 1100px) 100vw, 1052px" alt="ADA University campus" width="1920" height="630" fetchpriority="high">
-      </div>
-      <div class="container">
         <ul class="hero-stats">
-          <li><strong data-stat="schools">6</strong><span>Schools</span></li>
-          <li><strong data-stat="professors">—</strong><span>Professors</span></li>
-          <li><strong data-stat="reviews">100%</strong><span data-stat-label="reviews">Anonymous</span></li>
+          <li><strong data-stat="professors">—</strong> professors</li>
+          <li><strong data-stat="schools">6</strong> schools</li>
+          <li><strong data-stat="reviews">100%</strong> <span data-stat-label="reviews">anonymous</span></li>
         </ul>
+
+        <figure class="hero-visual">
+          <img src="/img/campus-1100.webp" srcset="/img/campus-1100.webp 1100w, /img/campus-1920.webp 1920w" sizes="(max-width: 1128px) 100vw, 1080px" alt="ADA University campus" width="1920" height="630" fetchpriority="high">
+          <figcaption>
+            <strong>Made by ADA students, for ADA students.</strong>
+            <span>No account, no names. Offensive reviews are blocked, and reported ones go to a moderator.</span>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
-    <section class="section" aria-labelledby="schools-title">
+    <section class="section section--tint" aria-labelledby="schools-title">
       <div class="container">
         <div class="section-head">
           <div>
@@ -116,6 +118,19 @@
           </div>
         </div>
         <ul id="schools-grid" class="school-grid"></ul>
+      </div>
+    </section>
+
+    <section class="section" id="top-rated" aria-labelledby="top-title" hidden>
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Students recommend</span>
+            <h2 id="top-title">Top rated professors</h2>
+            <p>Highest average ratings from student reviews.</p>
+          </div>
+        </div>
+        <ul id="top-grid" class="prof-grid prof-grid--rail"></ul>
       </div>
     </section>
 
@@ -132,22 +147,9 @@
       </div>
     </section>
 
-    <section class="section" id="top-rated" aria-labelledby="top-title" hidden>
-      <div class="container">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Highlights</span>
-            <h2 id="top-title">Top rated professors</h2>
-            <p>Highest average ratings from student reviews.</p>
-          </div>
-        </div>
-        <ul id="top-grid" class="prof-grid"></ul>
-      </div>
-    </section>
-
     <section class="section" aria-labelledby="how-title">
       <div class="container">
-        <div class="section-head">
+        <div class="section-head section-head--center">
           <div>
             <span class="section-kicker">How it works</span>
             <h2 id="how-title">Three steps, fully anonymous</h2>
@@ -187,7 +189,7 @@
             <h2 id="cta-title">Took a course this semester?</h2>
             <p>Leave a review in under a minute and help fellow students.</p>
           </div>
-          <a class="btn btn-gold" href="#hero-search" id="cta-search">Find a professor to rate</a>
+          <a class="btn btn-primary" href="#hero-search" id="cta-search">Find a professor to rate</a>
         </div>
       </div>
     </section>

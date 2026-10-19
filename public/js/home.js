@@ -11,7 +11,7 @@ function setStat(key, value) {
   const el = document.querySelector(`[data-stat="${key}"]`);
   if (el) el.textContent = value.toLocaleString('en-US');
   const label = document.querySelector(`[data-stat-label="${key}"]`);
-  if (label) label.textContent = 'Reviews';
+  if (label) label.textContent = 'reviews';
 }
 
 async function loadSchools() {
@@ -29,10 +29,10 @@ async function loadSchools() {
         <li>
           <a class="school-card" href="${schoolUrl(s.code)}">
             <div class="school-card-media">
-              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}-800.webp" alt="" width="800" height="450" loading="lazy" decoding="async">
-              <span class="school-code">${escapeHtml(s.code)}</span>
+              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}-800.webp" alt="" width="800" height="500" loading="lazy" decoding="async">
             </div>
             <div class="school-card-body">
+              <span class="school-code">${escapeHtml(s.code)}</span>
               <h3>${escapeHtml(s.name)}</h3>
               <p class="school-meta">
                 <span>${plural(s.professor_count, 'professor')} · ${plural(s.review_count, 'review')}</span>

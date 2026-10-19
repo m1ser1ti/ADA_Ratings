@@ -77,21 +77,25 @@ function renderProfile(p) {
   const school = SCHOOLS[p.school];
   const profile = safeUrl(p.profile_url);
   return `
-    <section class="card prof-aside" aria-labelledby="prof-name">
+    <section class="prof-header" aria-labelledby="prof-name">
       ${avatarImg(p, 'avatar', `Photo of ${p.name}`)}
-      <h1 id="prof-name">${escapeHtml(p.name)}</h1>
-      <p class="prof-title">${escapeHtml(p.title || '')}</p>
-      ${p.active === false ? '<p class="prof-inactive">No longer listed on the ADA University website. Reviews stay for reference.</p>' : ''}
-      <dl>
-        <div><dt>School</dt><dd><a href="${schoolUrl(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></dd></div>
-        ${p.specialization ? `<div><dt>Specialization</dt><dd>${escapeHtml(p.specialization)}</dd></div>` : ''}
-      </dl>
-      <a class="btn btn-gold btn-block" href="#review-form">Write a review</a>
-      <button type="button" class="btn btn-ghost btn-block" id="share-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
-        <span>Share</span>
-      </button>
-      ${profile ? `<a class="btn btn-ghost btn-block" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
+      <div>
+        <h1 id="prof-name">${escapeHtml(p.name)}</h1>
+        <p class="prof-title">${escapeHtml(p.title || '')}</p>
+        <ul class="prof-meta" aria-label="School and subject">
+          <li><a class="pill" href="${schoolUrl(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></li>
+          ${p.specialization ? `<li><span class="pill">${escapeHtml(p.specialization)}</span></li>` : ''}
+        </ul>
+        ${p.active === false ? '<p class="prof-inactive">No longer listed on the ADA University website. Reviews stay for reference.</p>' : ''}
+      </div>
+      <div class="prof-actions">
+        <a class="btn btn-primary" href="#review-form">Write a review</a>
+        <button type="button" class="btn btn-ghost btn-sm" id="share-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
+          <span>Share</span>
+        </button>
+        ${profile ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
+      </div>
     </section>`;
 }
 
@@ -101,11 +105,10 @@ function summaryNote(p) {
   if (p.avg_rating == null) {
     return `Average appears after ${MIN_REVIEWS_FOR_AVERAGE} reviews · ${total} so far`;
   }
-  return `based on ${plural(total, 'review')}`;
+  return `from ${plural(total, 'review')}`;
 }
 
 function renderSummary(p) {
-  const total = p.review_count;
   const max = Math.max(1, ...Object.values(p.distribution));
   const bars = Array.from({ length: 10 }, (_, i) => {
     const n = 10 - i;
@@ -119,17 +122,23 @@ function renderSummary(p) {
       </li>`;
   }).join('');
   return `
-    <section class="card summary" aria-labelledby="summary-title">
-      <div class="summary-score">
+    <section class="summary" aria-labelledby="summary-title">
+      <h2 id="summary-title" class="visually-hidden">Ratings summary</h2>
+      <div class="stat stat-overall">
+        <p class="stat-label">Overall rating</p>
         ${ratingBadge(p.avg_rating, 'large')}
         <div>${starsMeter(p.avg_rating)}</div>
-        <p>${summaryNote(p)}</p>
-      </div>
-      <div>
-        <h2 id="summary-title">Rating distribution</h2>
-        <ul class="dist">${bars}</ul>
+        <p class="stat-note">${summaryNote(p)}</p>
       </div>
       ${renderInsights(p)}
+      <div class="stat stat-dist">
+        <p class="stat-label">Rating distribution</p>
+        <ul class="dist">${bars}</ul>
+      </div>
+      ${p.top_tags?.length ? `<div class="stat stat-tags">
+        <p class="stat-label">Students say</p>
+        <ul class="tag-list">${p.top_tags.map(t => tagChip(t.tag, t.count)).join('')}</ul>
+      </div>` : ''}
     </section>`;
 }
 
@@ -140,20 +149,25 @@ function tagChip(tag, count) {
   return `<li class="tag">${label}${extra}</li>`;
 }
 
-// Difficulty, would-take-again and top tags; the API sends each only once enough reviews answered it.
+// Would-take-again and difficulty; the API sends each only once enough reviews answered it.
 function renderInsights(p) {
   const items = [];
+  if (p.would_take_again_pct != null) {
+    items.push(`<div class="stat">
+      <p class="stat-label">Would take again</p>
+      <p class="stat-value">${p.would_take_again_pct}%</p>
+      <div class="meter" aria-hidden="true"><span style="width:${p.would_take_again_pct}%"></span></div>
+    </div>`);
+  }
   if (p.avg_difficulty != null) {
     const value = formatScore(p.avg_difficulty);
-    items.push(`<div class="insight"><dt>Difficulty</dt><dd><strong>${value}</strong><span aria-hidden="true">/5</span><span class="visually-hidden"> out of 5</span></dd></div>`);
+    items.push(`<div class="stat">
+      <p class="stat-label">Difficulty</p>
+      <p class="stat-value">${value}<small aria-hidden="true">/5</small><span class="visually-hidden"> out of 5</span></p>
+      <div class="meter" aria-hidden="true"><span style="width:${(p.avg_difficulty / 5) * 100}%"></span></div>
+    </div>`);
   }
-  if (p.would_take_again_pct != null) {
-    items.push(`<div class="insight"><dt>Would take again</dt><dd><strong>${p.would_take_again_pct}%</strong></dd></div>`);
-  }
-  if (p.top_tags?.length) {
-    items.push(`<div class="insight insight-tags"><dt>Students say</dt><dd><ul class="tag-list">${p.top_tags.map(t => tagChip(t.tag, t.count)).join('')}</ul></dd></div>`);
-  }
-  return items.length ? `<dl class="insights">${items.join('')}</dl>` : '';
+  return items.join('');
 }
 
 function reviewDetails(r) {
@@ -296,7 +310,7 @@ function bindMobileCta() {
     bar = document.createElement('div');
     bar.id = 'mobile-cta';
     bar.className = 'mobile-cta';
-    bar.innerHTML = '<a class="btn btn-gold btn-block" href="#review-form">Write a review</a>';
+    bar.innerHTML = '<a class="btn btn-primary btn-block" href="#review-form">Write a review</a>';
     document.body.append(bar);
   }
   const form = document.getElementById('review-form');
@@ -318,8 +332,8 @@ function render() {
 
   root.innerHTML = `
     ${renderProfile(p)}
-    <div class="prof-main">
-      ${renderSummary(p)}
+    <div class="summary-band">${renderSummary(p)}</div>
+    <div class="prof-columns">
       ${renderReviews(p)}
       ${renderForm(p)}
     </div>`;

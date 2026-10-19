@@ -137,15 +137,16 @@ export function professorCard(p) {
       <a class="prof-card" href="${escapeHtml(p.url)}">
         <div class="prof-card-top">
           ${avatarImg(p)}
-          <div>
-            <h3>${escapeHtml(p.name)}</h3>
-            <p class="prof-title">${escapeHtml(p.title || '')}</p>
-          </div>
-        </div>
-        <p class="prof-spec">${escapeHtml(p.specialization || '')}</p>
-        <div class="prof-card-foot">
           ${ratingBadge(p.avg_rating)}
-          <span>${plural(p.review_count, 'review')}</span>
+        </div>
+        <div>
+          <h3>${escapeHtml(p.name)}</h3>
+          <p class="prof-title">${escapeHtml(p.title || '')}</p>
+        </div>
+        ${p.specialization ? `<p class="prof-spec">${escapeHtml(p.specialization)}</p>` : ''}
+        <div class="prof-card-foot">
+          ${p.school ? `<span class="pill">${escapeHtml(p.school)}</span>` : ''}
+          <span class="pill">${plural(p.review_count, 'review')}</span>
         </div>
       </a>
     </li>`;
@@ -312,7 +313,7 @@ export function setupSearch(root) {
 // after that the choice is saved and js/theme-init.js applies it before first paint.
 
 const THEME_KEY = 'ada-ratings:theme';
-const THEME_BAR = { light: '#ffffff', dark: '#0b1220' };
+const THEME_BAR = { light: '#ffffff', dark: '#000000' };
 const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
 function isDark() {

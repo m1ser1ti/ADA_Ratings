@@ -1,21 +1,39 @@
+import hashlib
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
+from app import RULES_COOKIE, RULES_VERSION
+from extensions import db
+from models import BAN_DEVICE, BAN_NETWORK, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Review
+
 GOOD_TEXT = 'Clear lectures and fair grading.'
+# A script that keeps no cookies still has to send the rules cookie it read off the site.
+RULES_ACCEPTED = {'Cookie': f'{RULES_COOKIE}={RULES_VERSION}'}
 
 
-def new_browser(app, ip=None):
-    """Another student's browser, holding its own anonymous cookie (optionally on its own network)."""
+def accept_rules(browser):
+    """What the rules screen does once a student agrees."""
+    browser.set_cookie(RULES_COOKIE, RULES_VERSION)
+    return browser
+
+
+def new_browser(app, ip=None, rules=True):
+    """Another student's browser, holding its own anonymous cookie (optionally on its own network).
+
+    It has accepted the site rules unless rules=False.
+    """
     browser = app.test_client()
     if ip:
         browser.environ_base['REMOTE_ADDR'] = ip
     browser.get('/')
-    return browser
+    return accept_rules(browser) if rules else browser
 
 
-def post_review(client, **overrides):
+def post_review(client, headers=None, **overrides):
     body = {'professor_id': overrides.pop('professor_id', None), 'rating': 8, 'text': GOOD_TEXT}
     body.update(overrides)
-    return client.post('/api/reviews', json=body)
+    return client.post('/api/reviews', json=body, headers=headers)
 
 
 def test_schools_list_counts_professors(client):
@@ -137,9 +155,7 @@ def test_security_headers_and_no_open_cors(client):
 
 
 def test_students_on_one_campus_network_can_review_the_same_professor(app, prof_id):
-    first, second = app.test_client(), app.test_client()
-    for browser in (first, second):
-        browser.get('/')
+    first, second = new_browser(app), new_browser(app)
     assert post_review(first, professor_id=prof_id).status_code == 201
     assert post_review(second, professor_id=prof_id).status_code == 201
     assert post_review(first, professor_id=prof_id).status_code == 429
@@ -147,8 +163,8 @@ def test_students_on_one_campus_network_can_review_the_same_professor(app, prof_
 
 def test_cookieless_scripts_share_their_network_limit(app, prof_id):
     script = app.test_client(use_cookies=False)
-    assert post_review(script, professor_id=prof_id).status_code == 201
-    assert post_review(script, professor_id=prof_id).status_code == 429
+    assert post_review(script, headers=RULES_ACCEPTED, professor_id=prof_id).status_code == 201
+    assert post_review(script, headers=RULES_ACCEPTED, professor_id=prof_id).status_code == 429
 
 
 def test_client_cookie_is_anonymous_and_http_only(app):
@@ -172,9 +188,7 @@ def test_network_key_groups_ipv6_by_64(app, addr, expected):
 def test_professor_wide_cap_stops_a_pile_on(app, prof_id):
     codes = []
     for _ in range(21):
-        browser = app.test_client()
-        browser.get('/')
-        codes.append(post_review(browser, professor_id=prof_id).status_code)
+        codes.append(post_review(new_browser(app), professor_id=prof_id).status_code)
     assert codes[:20] == [201] * 20
     assert codes[20] == 429
 
@@ -509,7 +523,7 @@ def test_recent_feed_skips_hidden_reviews(app, client, prof_id):
 def test_forged_cookies_from_one_network_cannot_hide_a_review(app, client, prof_id, monkeypatch):
     review_id = published_review(client, prof_id)
     for n in range(5):
-        attacker = app.test_client()
+        attacker = accept_rules(app.test_client())
         attacker.set_cookie('ada_client', f'{n:032x}')
         assert report(attacker, review_id).status_code == 202
     assert len(client.get(f'/api/professors/{prof_id}').get_json()['reviews']) == 1
@@ -528,7 +542,7 @@ def test_reports_have_a_network_ceiling(app, client, prof_id):
         ids = [r.id for r in Review.query.all()]
     codes = []
     for review_id in ids[:31]:
-        browser = app.test_client()
+        browser = accept_rules(app.test_client())
         browser.set_cookie('ada_client', f'{review_id:032x}')
         codes.append(report(browser, review_id).status_code)
     assert codes[:30] == [202] * 30
@@ -681,8 +695,7 @@ def test_legacy_reviews_table_gains_detail_columns(tmp_path):
     with old.app_context():
         columns = {c['name'] for c in inspect(db.engine).get_columns('review')}
         assert {'course_code', 'difficulty', 'would_take_again', 'tags'} <= columns
-    browser = old.test_client()
-    browser.get('/')
+    browser = new_browser(old)
     assert post_review(browser, professor_id=1, course_code='CS 1101', difficulty=2,
                        would_take_again=False, tags=['caring']).status_code == 201
     reviews = browser.get('/api/professors/1').get_json()['reviews']
@@ -813,3 +826,361 @@ def test_backup_copies_everything_and_restores(tmp_path, app, client, prof_id):
         with restored.connect() as con:
             from sqlalchemy import text
             assert con.execute(text('SELECT text FROM review')).scalar() == 'Worth backing up, great course.'
+
+
+# ---------- Site rules ----------
+
+def test_review_waits_for_the_rules_to_be_accepted(app, prof_id):
+    browser = new_browser(app, rules=False)
+    res = post_review(browser, professor_id=prof_id)
+    assert res.status_code == 403
+    assert res.get_json()['code'] == 'rules_required'
+    accept_rules(browser)
+    assert post_review(browser, professor_id=prof_id).status_code == 201, 'the refused attempt used up no limit'
+
+
+def test_report_waits_for_the_rules_to_be_accepted(app, client, prof_id):
+    review_id = published_review(client, prof_id)
+    browser = new_browser(app, rules=False)
+    res = report(browser, review_id)
+    assert res.status_code == 403
+    assert res.get_json()['code'] == 'rules_required'
+    assert report(accept_rules(browser), review_id).status_code == 202
+
+
+@pytest.mark.parametrize('value', ['0', 'yes'])
+def test_rules_cookie_must_name_the_current_rules(app, prof_id, value):
+    browser = new_browser(app, rules=False)
+    browser.set_cookie(RULES_COOKIE, value)
+    assert post_review(browser, professor_id=prof_id).get_json()['code'] == 'rules_required'
+
+
+@pytest.mark.parametrize('reason', ['personal_attack', 'false_information', 'spam', 'faculty_request', 'other'])
+def test_every_listed_report_reason_is_accepted(client, prof_id, reason):
+    assert report(client, published_review(client, prof_id), reason=reason).status_code == 202
+
+
+def test_sitemap_lists_the_rules_terms_and_privacy_pages(client):
+    body = client.get('/sitemap.xml').get_data(as_text=True)
+    for page in ('rules.html', 'terms.html', 'privacy.html'):
+        assert f'<loc>http://localhost/{page}</loc>' in body, page
+        assert client.get(f'/{page}').status_code == 200, page
+
+
+# ---------- Browser and network codes ----------
+
+def review_codes(app, review_id):
+    """The browser and network codes stored with a review."""
+    with app.app_context():
+        review = db.session.get(Review, review_id)
+        return review.client_hash, review.network
+
+
+def test_reviews_store_one_way_codes_of_browser_and_network(app, prof_id):
+    campus = '198.51.100.1'
+    first, second, at_home = new_browser(app, ip=campus), new_browser(app, ip=campus), new_browser(app, ip='203.0.113.9')
+    codes = [review_codes(app, published_review(b, prof_id)) for b in (first, second, at_home)]
+    assert all(len(code) == 32 for pair in codes for code in pair)
+    assert len({device for device, _ in codes}) == 3, 'every browser has its own code'
+    assert codes[0][1] == codes[1][1] != codes[2][1], 'one code per network'
+
+    token = first.get_cookie('ada_client').value
+    device, network = codes[0]
+    assert token not in device and campus not in network
+    # Keyed: an unkeyed hash of an IPv4 address can be reversed by trying all of them.
+    assert network != hashlib.sha256(campus.encode()).hexdigest()[:32]
+    assert device not in (hashlib.sha256(token.encode()).hexdigest()[:32],
+                          hashlib.sha256(f'device:{token}'.encode()).hexdigest()[:32])
+
+
+def test_codes_never_reach_the_public_api(client, prof_id):
+    posted = post_review(client, professor_id=prof_id).get_json()['review']
+    listed = client.get(f'/api/professors/{prof_id}').get_json()['reviews'][0]
+    for review in (posted, listed):
+        assert 'client_hash' not in review and 'network' not in review
+
+
+# ---------- Bans ----------
+
+def browser_code(app, browser):
+    """The code a ban on this browser holds: the same keyed hash stored with its reviews."""
+    from app import device_hash
+    token = browser.get_cookie('ada_client').value
+    with app.test_request_context(headers={'Cookie': f'ada_client={token}'}):
+        return device_hash()
+
+
+def network_code(app, ip='127.0.0.1'):
+    """The code of a network (the test client's default address unless given)."""
+    from app import network_hash
+    with app.test_request_context(environ_base={'REMOTE_ADDR': ip}):
+        return network_hash()
+
+
+def add_ban(app, kind, value, **fields):
+    with app.app_context():
+        db.session.add(Ban(kind=kind, value=value, **fields))
+        db.session.commit()
+
+
+def test_banned_browser_gets_the_blocked_page_everywhere(app, client, prof_id):
+    add_ban(app, BAN_DEVICE, browser_code(app, client))
+    for path in ('/', '/school/SITE', f'/professor/{prof_id}', f'/professor/{prof_id}-ada-lovelace', '/rules.html'):
+        res = client.get(path)
+        assert res.status_code == 403, path
+        assert 'Access blocked' in res.get_data(as_text=True), path
+    assert client.get('/blocked.html').status_code == 200
+
+
+def test_blocked_page_keeps_its_title(app, client):
+    add_ban(app, BAN_DEVICE, browser_code(app, client))
+    html = client.get('/').get_data(as_text=True)
+    assert '<title>Access blocked · ADA Ratings</title>' in html
+
+
+def test_banned_browser_can_neither_review_nor_report(app, prof_id):
+    review_id = published_review(new_browser(app), prof_id)
+    banned = new_browser(app)
+    add_ban(app, BAN_DEVICE, browser_code(app, banned))
+    for res in (post_review(banned, professor_id=prof_id), report(banned, review_id)):
+        assert res.status_code == 403
+        assert res.get_json()['code'] == 'blocked'
+
+
+def test_a_browser_ban_leaves_the_rest_of_the_campus_alone(app, client, prof_id):
+    add_ban(app, BAN_DEVICE, browser_code(app, client))
+    neighbour = new_browser(app)  # the same network address
+    assert neighbour.get('/').status_code == 200
+    assert post_review(neighbour, professor_id=prof_id).status_code == 201
+
+
+def test_network_ban_stops_posts_but_not_pages(app, prof_id):
+    review_id = published_review(new_browser(app, ip='198.51.100.9'), prof_id)
+    add_ban(app, BAN_NETWORK, network_code(app, '203.0.113.5'))
+    on_network = new_browser(app, ip='203.0.113.5')
+    assert on_network.get('/').status_code == 200, 'pages check the browser only: a campus shares one address'
+    assert post_review(on_network, professor_id=prof_id).get_json()['code'] == 'blocked'
+    assert report(on_network, review_id).get_json()['code'] == 'blocked'
+    assert post_review(new_browser(app, ip='198.51.100.10'), professor_id=prof_id).status_code == 201
+
+
+def test_expired_bans_do_nothing(app, client, prof_id):
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    add_ban(app, BAN_DEVICE, browser_code(app, client), expires_at=yesterday)
+    add_ban(app, BAN_NETWORK, network_code(app), expires_at=yesterday)
+    assert client.get('/').status_code == 200
+    assert post_review(client, professor_id=prof_id).status_code == 201
+
+
+def test_a_ban_with_an_end_date_blocks_until_then(app, client):
+    add_ban(app, BAN_DEVICE, browser_code(app, client), expires_at=datetime.now(timezone.utc) + timedelta(days=1))
+    assert client.get('/').status_code == 403
+
+
+# ---------- AI moderation ----------
+
+ADMIN = {'Authorization': 'Bearer correct-horse'}
+MODERATOR = {'Authorization': 'Bearer battery-staple'}
+
+
+@pytest.fixture
+def moderation(monkeypatch):
+    """Both tokens set, as in production: the AI moderator has its own."""
+    monkeypatch.setenv('ADMIN_TOKEN', 'correct-horse')
+    monkeypatch.setenv('MODERATOR_TOKEN', 'battery-staple')
+
+
+def moderation_queue(client, auth=MODERATOR, **params):
+    return client.get('/api/moderation/queue', headers=auth, query_string=params)
+
+
+def decide(client, review_id, auth=MODERATOR, **body):
+    return client.post(f'/api/moderation/reviews/{review_id}', json=body, headers=auth)
+
+
+def stored_review(app, review_id):
+    with app.app_context():
+        return db.session.get(Review, review_id)
+
+
+def all_bans(app):
+    with app.app_context():
+        return [(b.kind, b.value, b.source, b.review_id, b.reason) for b in Ban.query.order_by(Ban.id)]
+
+
+def test_moderation_api_does_not_exist_without_tokens(client, prof_id, monkeypatch):
+    monkeypatch.delenv('ADMIN_TOKEN', raising=False)
+    monkeypatch.delenv('MODERATOR_TOKEN', raising=False)
+    review_id = published_review(client, prof_id)
+    assert moderation_queue(client).status_code == 404
+    assert decide(client, review_id, verdict='ok').status_code == 404
+
+
+def test_moderation_takes_the_moderator_or_the_admin_token(client, prof_id, moderation):
+    review_id = published_review(client, prof_id)
+    assert moderation_queue(client, auth=MODERATOR).status_code == 200
+    assert moderation_queue(client, auth=ADMIN).status_code == 200
+    for auth in ({'Authorization': 'Bearer wrong'}, {'Authorization': 'Bearer '}, {}):
+        assert moderation_queue(client, auth=auth).status_code == 401
+        assert decide(client, review_id, auth=auth, verdict='ok').status_code == 401
+
+
+def test_an_unset_admin_token_never_matches_an_empty_one(client, monkeypatch):
+    monkeypatch.delenv('ADMIN_TOKEN', raising=False)
+    monkeypatch.setenv('MODERATOR_TOKEN', 'battery-staple')
+    assert moderation_queue(client, auth={'Authorization': 'Bearer '}).status_code == 401
+    assert moderation_queue(client, auth=MODERATOR).status_code == 200
+
+
+def test_queue_lists_unchecked_published_written_reviews_oldest_first(app, client, prof_id, moderation):
+    with app.app_context():
+        db.session.add_all([
+            Review(professor_id=prof_id, rating=7, text='first to check'),
+            Review(professor_id=prof_id, rating=7, text=''),  # rating only: nothing to read
+            Review(professor_id=prof_id, rating=7, text='hidden one', status=REVIEW_HIDDEN),
+            Review(professor_id=prof_id, rating=7, text='pending one', status=REVIEW_PENDING),
+            Review(professor_id=prof_id, rating=7, text='already checked', ai_verdict='ok',
+                   ai_checked_at=datetime.now(timezone.utc)),
+            Review(professor_id=prof_id, rating=4, text='second to check', course_code='CS 1101', tags='caring'),
+        ])
+        db.session.commit()
+    queue = moderation_queue(client).get_json()
+    assert [r['text'] for r in queue] == ['first to check', 'second to check']
+    assert queue[1] == {
+        'id': queue[1]['id'], 'text': 'second to check', 'rating': 4, 'course_code': 'CS 1101', 'tags': ['caring'],
+        'professor': 'Ada Lovelace', 'school': 'SITE',
+    }
+    assert [r['text'] for r in moderation_queue(client, limit=1).get_json()] == ['first to check']
+
+
+def test_ok_verdict_keeps_the_review_and_takes_it_off_the_queue(app, client, prof_id, moderation):
+    review_id = published_review(client, prof_id)
+    assert [r['id'] for r in moderation_queue(client).get_json()] == [review_id]
+    assert decide(client, review_id, verdict='ok').get_json() == {'success': True, 'banned': False}
+    assert moderation_queue(client).get_json() == []
+    review = stored_review(app, review_id)
+    assert (review.ai_verdict, review.status) == ('ok', REVIEW_PUBLISHED)
+    assert len(client.get(f'/api/professors/{prof_id}').get_json()['reviews']) == 1
+
+
+def test_remove_verdict_hides_the_review_and_keeps_the_reason(app, client, prof_id, moderation):
+    review_id = published_review(client, prof_id)
+    assert decide(client, review_id, verdict='remove', reason='Insults the professor').get_json() == \
+        {'success': True, 'banned': False}
+    review = stored_review(app, review_id)
+    assert (review.ai_verdict, review.ai_reason, review.status) == ('remove', 'Insults the professor', REVIEW_HIDDEN)
+    assert client.get(f'/api/professors/{prof_id}').get_json()['reviews'] == []
+    assert all_bans(app) == [] and client.get('/').status_code == 200, 'no ban unless asked for'
+
+
+def test_ai_reason_is_cut_to_300_characters(app, client, prof_id, moderation):
+    review_id = published_review(client, prof_id)
+    decide(client, review_id, verdict='remove', reason='x' * 400)
+    assert stored_review(app, review_id).ai_reason == 'x' * 300
+
+
+def test_remove_with_ban_blocks_the_author_and_nobody_else(app, client, prof_id, moderation):
+    author, neighbour = new_browser(app), new_browser(app)
+    review_id = published_review(author, prof_id)
+    author_code, _ = review_codes(app, review_id)
+    res = decide(client, review_id, verdict='remove', reason='Personal attack', ban=True)
+    assert res.get_json() == {'success': True, 'banned': True}
+    assert stored_review(app, review_id).status == REVIEW_HIDDEN
+    assert all_bans(app) == [(BAN_DEVICE, author_code, 'ai', review_id, 'AI: Personal attack')]
+    assert author.get('/').status_code == 403
+    assert neighbour.get('/').status_code == 200
+    assert post_review(neighbour, professor_id=prof_id).status_code == 201
+
+
+@pytest.mark.parametrize('verdict, ban', [('ok', True), ('remove', 'yes'), ('remove', 1)])
+def test_only_a_remove_with_ban_true_bans(app, client, prof_id, moderation, verdict, ban):
+    review_id = published_review(client, prof_id)
+    assert decide(client, review_id, verdict=verdict, ban=ban).get_json()['banned'] is False
+    assert all_bans(app) == []
+
+
+def test_banning_the_same_author_twice_keeps_one_ban(app, client, prof_id, moderation):
+    from models import Professor
+    with app.app_context():
+        other_prof = Professor.query.filter_by(name='Alan Turing').one().id
+    author = new_browser(app)
+    first, second = published_review(author, prof_id), published_review(author, other_prof)
+    for review_id in (first, second):
+        assert decide(client, review_id, verdict='remove', ban=True).get_json()['banned'] is True
+    assert len(all_bans(app)) == 1
+
+
+@pytest.mark.parametrize('body', [{'verdict': 'maybe'}, {'verdict': None}, {}, ['ok']])
+def test_invalid_verdicts_are_400(app, client, prof_id, moderation, body):
+    review_id = published_review(client, prof_id)
+    res = client.post(f'/api/moderation/reviews/{review_id}', json=body, headers=MODERATOR)
+    assert res.status_code == 400
+    assert stored_review(app, review_id).ai_checked_at is None
+
+
+def test_verdict_on_an_unknown_review_is_404(client, moderation):
+    assert decide(client, 999999, verdict='ok').status_code == 404
+
+
+def test_ban_on_a_review_without_a_browser_code_only_hides_it(app, client, prof_id, moderation):
+    script = app.test_client(use_cookies=False)
+    review_id = post_review(script, headers=RULES_ACCEPTED, professor_id=prof_id).get_json()['review']['id']
+    assert review_codes(app, review_id)[0] is None
+    assert decide(client, review_id, verdict='remove', reason='Spam', ban=True).get_json() == \
+        {'success': True, 'banned': False}
+    assert stored_review(app, review_id).status == REVIEW_HIDDEN
+    assert all_bans(app) == []
+
+
+# ---------- Admin: bans ----------
+
+def test_ban_list_is_for_the_admin_only(client, moderation):
+    assert client.get('/api/admin/bans', headers=MODERATOR).status_code == 401
+    assert client.get('/api/admin/bans', headers=ADMIN).get_json() == []
+
+
+def test_admin_can_lift_a_ban(app, client, prof_id, moderation):
+    author = new_browser(app)
+    review_id = published_review(author, prof_id)
+    decide(client, review_id, verdict='remove', reason='Personal attack', ban=True)
+    assert author.get('/').status_code == 403
+
+    bans = client.get('/api/admin/bans', headers=ADMIN).get_json()
+    assert [(b['kind'], b['source'], b['review_id'], b['reason'], b['expires_at']) for b in bans] == \
+        [('device', 'ai', review_id, 'AI: Personal attack', None)]
+    ban_id = bans[0]['id']
+    assert client.delete(f'/api/admin/bans/{ban_id}', headers=MODERATOR).status_code == 401
+    assert client.delete(f'/api/admin/bans/{ban_id}', headers=ADMIN).status_code == 200
+    assert author.get('/').status_code == 200
+    assert client.get('/api/admin/bans', headers=ADMIN).get_json() == []
+    assert client.delete(f'/api/admin/bans/{ban_id}', headers=ADMIN).status_code == 404
+
+
+def test_admin_ban_action_hides_the_review_and_blocks_its_author(app, client, prof_id, moderation):
+    author = new_browser(app)
+    review_id = published_review(author, prof_id)
+    assert client.post(f'/api/admin/reviews/{review_id}', json={'action': 'ban'}, headers=ADMIN).status_code == 200
+    assert stored_review(app, review_id).status == REVIEW_HIDDEN
+    assert author.get('/').status_code == 403
+    author_code, _ = review_codes(app, review_id)
+    assert all_bans(app) == [(BAN_DEVICE, author_code, 'admin', review_id, 'Blocked by a moderator')]
+
+
+def test_admin_ban_on_an_untraceable_review_is_refused(app, client, prof_id, moderation):
+    script = app.test_client(use_cookies=False)
+    review_id = post_review(script, headers=RULES_ACCEPTED, professor_id=prof_id).get_json()['review']['id']
+    res = client.post(f'/api/admin/reviews/{review_id}', json={'action': 'ban'}, headers=ADMIN)
+    assert res.status_code == 400
+    assert stored_review(app, review_id).status == REVIEW_PUBLISHED, 'a refused action changes nothing'
+    assert all_bans(app) == []
+
+
+def test_admin_sees_the_ai_verdict(app, client, prof_id, moderation):
+    removed = published_review(client, prof_id)
+    kept = published_review(new_browser(app), prof_id)
+    decide(client, removed, verdict='remove', reason='Personal attack')
+    decide(client, kept, verdict='ok')
+    listing = client.get('/api/admin/reviews', headers=ADMIN).get_json()
+    assert [(r['id'], r['ai_verdict'], r['ai_reason']) for r in listing['flagged']] == \
+        [(removed, 'remove', 'Personal attack')]
+    assert [(r['id'], r['ai_verdict'], r['ai_reason']) for r in listing['recent']] == [(kept, 'ok', None)]

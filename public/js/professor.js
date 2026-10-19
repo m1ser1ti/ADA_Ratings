@@ -1,6 +1,6 @@
 import {
-  MIN_REVIEWS_FOR_AVERAGE, api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, plural,
-  pathParam, ratingBadge, safeUrl, schoolUrl, starsMeter,
+  MIN_REVIEWS_FOR_AVERAGE, api, avatarImg, errorState, escapeHtml, forgetProfessors, formatDate, openRulesGate,
+  plural, pathParam, ratingBadge, safeUrl, schoolUrl, starsMeter,
 } from './common.js';
 import { SCHOOLS } from './schools.js';
 
@@ -24,6 +24,7 @@ const REPORT_REASONS = {
   personal_attack: 'Personal attack or insult',
   false_information: 'False or misleading',
   spam: 'Spam or off-topic',
+  faculty_request: 'I am this professor: please check this review',
   other: 'Something else',
 };
 const REPORTED_KEY = 'ada-ratings:reported';
@@ -435,6 +436,7 @@ function bindReports() {
       });
     } catch (err) {
       send.removeAttribute('aria-busy');
+      if (err.code === 'rules_required') openRulesGate();
       form.querySelector('.field-error').textContent = err.status === 429
         ? 'You have already reported this review.'
         : err.message;
@@ -456,6 +458,7 @@ function setFieldError(id, message, fields) {
 }
 
 function submitErrorMessage(err) {
+  if (err.code === 'rules_required') return 'Please accept the site rules, then press Submit again.';
   if (err.status === 429) return 'Too many reviews from your network right now. Please try again later.';
   return err.message || 'Could not submit your review. Please try again.';
 }
@@ -559,6 +562,7 @@ function bindForm() {
       submitting = false;
       setBusy(false, 'Submit review');
       showStatus('error', submitErrorMessage(err));
+      if (err.code === 'rules_required') openRulesGate();
       return;
     }
 

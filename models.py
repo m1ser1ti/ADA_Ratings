@@ -59,6 +59,14 @@ class Review(db.Model):
     would_take_again = db.Column(db.Boolean)
     # Comma-joined keys from REVIEW_TAGS in app.py, at most three.
     tags = db.Column(db.String(200))
+    # Keyed one-way hashes of the author's anonymous browser id and network (never the cookie
+    # or the address itself), so a rule breaker can be blocked without knowing who they are.
+    client_hash = db.Column(db.String(32), index=True)
+    network = db.Column(db.String(32))
+    # The AI moderator's decision: 'ok' or 'remove', with a short reason.
+    ai_verdict = db.Column(db.String(16))
+    ai_reason = db.Column(db.String(300))
+    ai_checked_at = db.Column(db.DateTime(timezone=True), index=True)
     professor = db.relationship('Professor', back_populates='reviews')
     reports = db.relationship('Report', back_populates='review', lazy=True, cascade='all, delete-orphan')
 
@@ -76,3 +84,19 @@ class Report(db.Model):
     network = db.Column(db.String(32))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     review = db.relationship('Review', back_populates='reports')
+
+
+BAN_DEVICE = 'device'
+BAN_NETWORK = 'network'
+
+
+class Ban(db.Model):
+    """A blocked browser (or, set by hand only, a network): it can neither open the site nor post."""
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(16), nullable=False)
+    value = db.Column(db.String(32), nullable=False, index=True)  # the same keyed hash as on reviews
+    reason = db.Column(db.String(300))
+    source = db.Column(db.String(16), nullable=False, default='admin')  # 'ai' or 'admin'
+    review_id = db.Column(db.Integer)  # the review that led to the ban, if any
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    expires_at = db.Column(db.DateTime(timezone=True))  # empty: until a moderator lifts it

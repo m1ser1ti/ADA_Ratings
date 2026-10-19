@@ -52,6 +52,7 @@ export async function api(path, options) {
   if (!res.ok) {
     const error = new Error((body && body.error) || `Request failed (${res.status})`);
     error.status = res.status;
+    error.code = body && body.code; // e.g. 'rules_required' or 'blocked'
     throw error;
   }
   return body;
@@ -430,5 +431,69 @@ if (siteHeader) {
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 }
+// ---------- Rules screen ----------
+// Every visitor agrees to the review rules once (per rules version) before using the site.
+// The server checks the same cookie before it accepts a review or a report.
+
+const RULES_COOKIE = 'ada_rules';
+const RULES_VERSION = '1'; // must match RULES_VERSION in app.py
+
+export function hasAcceptedRules() {
+  return document.cookie.split('; ').includes(`${RULES_COOKIE}=${RULES_VERSION}`);
+}
+
+function rememberRules() {
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${RULES_COOKIE}=${RULES_VERSION}; Max-Age=31536000; Path=/; SameSite=Lax${secure}`;
+}
+
+const RULES_POINTS = [
+  ['Be honest and fair.', 'Write only about a course you actually took.'],
+  ['Talk about the teaching, not the person.', 'No insults, and nothing about looks, private life, religion, ethnicity, gender or health.'],
+  ['No accusations and no personal data.', 'Do not accuse anyone of crimes or bribery, and do not share contacts or names of other students.'],
+  ['Respect people’s reputation.', 'A review is your opinion. Do not use it to damage a professor’s name.'],
+  ['Breaking the rules has consequences.', 'Such reviews are removed, and the browser that posted them can be blocked from the site.'],
+];
+
+export function openRulesGate() {
+  let dialog = document.getElementById('rules-gate');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'rules-gate';
+    dialog.className = 'rules-gate';
+    dialog.setAttribute('aria-labelledby', 'rules-gate-title');
+    dialog.setAttribute('aria-describedby', 'rules-gate-lead');
+    dialog.innerHTML = `
+      <form method="dialog" class="rules-gate-form">
+        <span class="rules-gate-badge">ADA Ratings</span>
+        <h2 id="rules-gate-title">Before you start</h2>
+        <p id="rules-gate-lead" class="rules-gate-lead">Reviews help students choose courses. They only work if they are honest and fair to the professors who are written about.</p>
+        <ol class="rules-gate-list">
+          ${RULES_POINTS.map(([title, text]) => `<li><strong>${title}</strong> ${text}</li>`).join('')}
+        </ol>
+        <label class="rules-gate-check">
+          <input type="checkbox" name="agree" required>
+          <span>I have read and agree to the <a href="/rules.html" target="_blank" rel="noopener">review rules</a> and the <a href="/terms.html" target="_blank" rel="noopener">terms of use</a>.</span>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Agree and continue</button>
+      </form>`;
+    document.body.append(dialog);
+    // Escape must not skip the agreement.
+    dialog.addEventListener('cancel', event => event.preventDefault());
+    dialog.querySelector('form').addEventListener('submit', () => {
+      rememberRules();
+      document.documentElement.classList.remove('rules-open');
+    });
+  }
+  if (!dialog.open) {
+    document.documentElement.classList.add('rules-open');
+    dialog.showModal();
+  }
+}
+
+// The rules, terms and privacy pages stay readable without agreeing first.
+const UNGATED_PAGES = ['/rules.html', '/terms.html', '/privacy.html', '/blocked.html', '/admin.html'];
+if (!UNGATED_PAGES.includes(window.location.pathname) && !hasAcceptedRules()) openRulesGate();
+
 document.querySelectorAll('.search').forEach(setupSearch);
 document.querySelectorAll('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });

@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from app import create_app, limiter
+from app import RULES_COOKIE, RULES_VERSION, create_app, limiter
 from extensions import db
 from models import Professor, School
 
@@ -37,9 +37,10 @@ def app():
 
 @pytest.fixture
 def client(app):
-    """A browser that has opened the site once, so it holds the anonymous client cookie."""
+    """A browser that has opened the site once and accepted the rules, so it holds both cookies."""
     client = app.test_client()
     client.get('/')
+    client.set_cookie(RULES_COOKIE, RULES_VERSION)
     return client
 
 

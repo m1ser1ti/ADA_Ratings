@@ -82,6 +82,7 @@
         <a href="/">Home</a>
         <a href="/#how-title">How it works</a>
         <a href="/rules.html">Review rules</a>
+        <a href="/terms.html">Terms of use</a>
         <a href="/privacy.html" aria-current="page">Privacy</a>
       </div>
     </div>
@@ -98,12 +99,22 @@
 
         <h2>What we store</h2>
         <ul>
-          <li><strong>Your review:</strong> the text, the rating and the date. Nothing that identifies you is saved with it.</li>
+          <li><strong>Your review:</strong> the rating, the optional text and details, and the date. No name, email or IP address is saved with it.</li>
+          <li><strong>Two one-way codes with each review:</strong> one derived from your browser’s random cookie and one from your network. They cannot be turned back into the cookie or your address. They are used only to enforce the rules: if a review breaks them badly, the browser that posted it can be blocked.</li>
+          <li><strong>Blocks:</strong> the one-way browser code of a blocked browser, the reason and the date.</li>
           <li><strong>Reports:</strong> which review was reported, the reason, the date, and a one-way code derived from your network. The code cannot be turned back into your address; it only lets us tell whether reports came from several different networks.</li>
         </ul>
 
-        <h2>Cookie</h2>
-        <p>The site sets one cookie, <code>ada_client</code>: a random code that lets us limit how many reviews one browser can post, so a single person cannot flood a professor’s page. It is not linked to your reviews and expires after a year. Clearing your cookies removes it.</p>
+        <h2>Cookies</h2>
+        <p>The site sets two cookies, both needed for it to work:</p>
+        <ul>
+          <li><code>ada_client</code>: a random code that limits how many reviews one browser can post and lets a rule-breaking browser be blocked. It expires after a year.</li>
+          <li><code>ada_rules</code>: remembers that you accepted the review rules, so the rules screen does not show on every visit.</li>
+        </ul>
+        <p>Clearing your cookies removes both.</p>
+
+        <h2>Moderation</h2>
+        <p>Published reviews are checked by an AI model that runs on a moderator’s own computer. Review text is not sent to outside AI companies. Only the review and the professor’s name are checked, never any code that relates to you.</p>
 
         <h2>Your network address</h2>
         <p>Your IP address is used only to apply the same limits and is never stored with reviews or reports. Our hosting provider may keep standard request logs for a short time.</p>
@@ -147,6 +158,7 @@
           <ul class="footer-links">
             <li><a href="https://www.ada.edu.az" target="_blank" rel="noopener">ADA University website<span class="visually-hidden"> (opens in a new tab)</span></a></li>
             <li><a href="/rules.html">Review rules</a></li>
+            <li><a href="/terms.html">Terms of use</a></li>
             <li><a href="/privacy.html">Privacy</a></li>
           </ul>
         </nav>

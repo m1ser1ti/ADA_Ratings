@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -22,7 +23,9 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db
-from models import REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Professor, Report, Review, School
+from models import (
+    BAN_DEVICE, BAN_NETWORK, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Professor, Report, Review, School,
+)
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +34,11 @@ MAX_REVIEW_LENGTH = 5000
 MIN_REVIEWS_FOR_AVERAGE = 3
 # This many reports take a review off the site until a moderator looks at it.
 REPORTS_TO_HIDE = 3
-REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'other')
+REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'faculty_request', 'other')
+# Set by the rules screen every visitor accepts; bump it when the rules change so everyone agrees again.
+RULES_COOKIE = 'ada_rules'
+RULES_VERSION = '1'
+AI_REASON_MAX = 300
 RECENT_EXCERPT = 240
 # Keys are stored and sent to the client; the page shows its own labels for them.
 REVIEW_TAGS = (
@@ -210,6 +217,38 @@ def network_hash():
     return hmac.new(NETWORK_HASH_KEY, network_key().encode(), hashlib.sha256).hexdigest()[:32]
 
 
+def device_hash():
+    """Keyed hash of the anonymous browser cookie, or None when the browser has none."""
+    token = request.cookies.get(CLIENT_COOKIE, '')
+    if not is_client_token(token):
+        return None
+    return hmac.new(NETWORK_HASH_KEY, f'device:{token}'.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def active_ban(include_network=True):
+    """The ban that applies to this request's browser (and network), if any."""
+    keys = []
+    device = device_hash()
+    if device:
+        keys.append((BAN_DEVICE, device))
+    if include_network:
+        keys.append((BAN_NETWORK, network_hash()))
+    if not keys:
+        return None
+    now = datetime.now(timezone.utc)
+    for ban in Ban.query.filter(Ban.value.in_([value for _, value in keys])).all():
+        expires = ban.expires_at
+        if expires is not None and expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)  # SQLite returns naive datetimes
+        if (ban.kind, ban.value) in keys and (expires is None or expires > now):
+            return ban
+    return None
+
+
+def accepted_rules():
+    return request.cookies.get(RULES_COOKIE) == RULES_VERSION
+
+
 def created(response):
     """Only successful submissions count toward a limit; a rejected attempt can be fixed and resent."""
     return response.status_code in (201, 202)
@@ -258,7 +297,10 @@ def upgrade_schema():
             log.info('Adding review.report_count')
             conn.execute(text('ALTER TABLE review ADD COLUMN report_count INTEGER NOT NULL DEFAULT 0'))
         for name, sql_type in (('course_code', 'VARCHAR(16)'), ('difficulty', 'INTEGER'),
-                               ('would_take_again', 'BOOLEAN'), ('tags', 'VARCHAR(200)')):
+                               ('would_take_again', 'BOOLEAN'), ('tags', 'VARCHAR(200)'),
+                               ('client_hash', 'VARCHAR(32)'), ('network', 'VARCHAR(32)'),
+                               ('ai_verdict', 'VARCHAR(16)'), ('ai_reason', 'VARCHAR(300)'),
+                               ('ai_checked_at', 'TIMESTAMP WITH TIME ZONE')):
             if name not in columns:
                 log.info('Adding review.%s', name)
                 conn.execute(text(f'ALTER TABLE review ADD COLUMN {name} {sql_type}'))
@@ -269,6 +311,8 @@ def upgrade_schema():
             conn.execute(text('ALTER TABLE report ADD COLUMN network VARCHAR(32)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_client_hash ON review (client_hash)'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_ai_checked_at ON review (ai_checked_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
         professor_columns = {c['name'] for c in inspect(db.engine).get_columns('professor')}
         if 'active' not in professor_columns:
@@ -496,6 +540,25 @@ def create_app(config=None):
             )
         return response
 
+    @app.before_request
+    def blocked_visitors():
+        is_page = request.method == 'GET' and (
+            request.path == '/' or request.path.endswith('.html')
+            or request.path.startswith(('/school/', '/professor/'))
+        )
+        is_post = request.method == 'POST' and request.path.startswith('/api/reviews')
+        if not (is_page or is_post) or request.path == '/blocked.html':
+            return None
+        # Pages check the browser only: a whole campus shares one network address.
+        ban = active_ban(include_network=is_post)
+        if ban is None:
+            return None
+        if is_post:
+            return jsonify({'error': 'Your access to ADA Ratings has been blocked for breaking the site rules.',
+                            'code': 'blocked'}), 403
+        return render_page(app, 'blocked.html', meta_tags('Access blocked · ADA Ratings', DEFAULT_DESCRIPTION,
+                                                          '/blocked.html', noindex=True), status=403)
+
     @app.after_request
     def security_headers(response):
         if request.is_secure:
@@ -584,7 +647,7 @@ def create_app(config=None):
 
     @app.route('/robots.txt')
     def robots():
-        body = f'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\n\nSitemap: {site_url()}/sitemap.xml\n'
+        body = f'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\nDisallow: /blocked.html\n\nSitemap: {site_url()}/sitemap.xml\n'
         return Response(body, mimetype='text/plain')
 
     @app.route('/sitemap.xml')
@@ -602,7 +665,7 @@ def create_app(config=None):
             stamp = latest.get(p.id)
             lastmod = f'<lastmod>{stamp.date().isoformat()}</lastmod>' if stamp else ''
             urls.append(f'<url><loc>{escape(base + professor_path(p))}</loc>{lastmod}</url>')
-        urls += [f'<url><loc>{base}/rules.html</loc></url>', f'<url><loc>{base}/privacy.html</loc></url>']
+        urls += [f'<url><loc>{base}/{page}</loc></url>' for page in ('rules.html', 'terms.html', 'privacy.html')]
         body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join(urls) + '</urlset>'
         return Response(body, mimetype='application/xml')
 
@@ -685,6 +748,8 @@ def create_app(config=None):
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({'error': 'Request body must be a JSON object'}), 400
+        if not accepted_rules():
+            return jsonify({'error': 'Please read and accept the site rules first.', 'code': 'rules_required'}), 403
 
         prof_id = data.get('professor_id')
         if not is_int(prof_id):
@@ -716,7 +781,8 @@ def create_app(config=None):
         if not professor:
             return jsonify({'error': 'Professor not found'}), 404
 
-        review = Review(professor_id=professor.id, text=review_text, rating=rating, **details)
+        review = Review(professor_id=professor.id, text=review_text, rating=rating,
+                        client_hash=device_hash(), network=network_hash(), **details)
         db.session.add(review)
         db.session.commit()
 
@@ -753,6 +819,8 @@ def create_app(config=None):
     def report_review(review_id):
         data = request.get_json(silent=True)
         reason = data.get('reason') if isinstance(data, dict) else None
+        if not accepted_rules():
+            return jsonify({'error': 'Please read and accept the site rules first.', 'code': 'rules_required'}), 403
         if reason not in REPORT_REASONS:
             return jsonify({'error': 'Choose a reason for the report'}), 400
         review = db.session.get(Review, review_id)
@@ -775,13 +843,31 @@ def create_app(config=None):
         db.session.commit()
         return jsonify({'success': True}), 202
 
-    def require_admin():
-        token = os.environ.get('ADMIN_TOKEN', '')
-        if not token:
+    def bearer_matches(*names):
+        given = request.headers.get('Authorization', '').removeprefix('Bearer ').strip().encode()
+        tokens = [os.environ.get(name, '') for name in names]
+        if not any(tokens):
             abort(404)  # moderation is switched off: the routes do not exist
-        given = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
-        if not secrets.compare_digest(given.encode(), token.encode()):
+        if not any(t and secrets.compare_digest(given, t.encode()) for t in tokens):
             abort(401)
+
+    def require_admin():
+        bearer_matches('ADMIN_TOKEN')
+
+    def require_moderator():
+        # The AI moderator has its own token, so the full admin token never leaves the server.
+        bearer_matches('MODERATOR_TOKEN', 'ADMIN_TOKEN')
+
+    def ban_review_author(review, reason, source):
+        if not review.client_hash:
+            return None
+        existing = Ban.query.filter_by(kind=BAN_DEVICE, value=review.client_hash, expires_at=None).first()
+        if existing:
+            return existing
+        ban = Ban(kind=BAN_DEVICE, value=review.client_hash, reason=reason[:AI_REASON_MAX], source=source,
+                  review_id=review.id)
+        db.session.add(ban)
+        return ban
 
     def admin_review(r):
         reasons = {}
@@ -792,6 +878,7 @@ def create_app(config=None):
             'report_count': r.report_count, 'reasons': reasons, 'created_at': iso(r.created_at),
             'course_code': r.course_code,
             'professor': {'id': r.professor.id, 'name': r.professor.name},
+            'ai_verdict': r.ai_verdict, 'ai_reason': r.ai_reason,
         }
 
     @app.route('/api/admin/reviews', methods=['GET'])
@@ -828,10 +915,76 @@ def create_app(config=None):
             review.status = REVIEW_HIDDEN
         elif action == 'delete':
             db.session.delete(review)
+        elif action == 'ban':
+            review.status = REVIEW_HIDDEN
+            if ban_review_author(review, 'Blocked by a moderator', 'admin') is None:
+                return jsonify({'error': 'This review was written before browsers were recorded; it cannot be traced.'}), 400
         else:
             return jsonify({'error': 'Unknown action'}), 400
         db.session.commit()
         log.info('Moderator %s review %s', action, review_id)
+        return jsonify({'success': True})
+
+    # ---------- AI moderation (run by moderator/ai_moderator.py) ----------
+
+    @app.route('/api/moderation/queue', methods=['GET'])
+    @limiter.limit('120 per minute')
+    def moderation_queue():
+        require_moderator()
+        limit = min(max(request.args.get('limit', 10, type=int), 1), 50)
+        reviews = (
+            Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
+            .filter(Review.status == REVIEW_PUBLISHED, Review.ai_checked_at.is_(None), Review.text != '')
+            .order_by(Review.id)
+            .limit(limit)
+            .all()
+        )
+        return jsonify([{
+            'id': r.id, 'text': r.text, 'rating': r.rating, 'course_code': r.course_code, 'tags': r.tag_list,
+            'professor': r.professor.name, 'school': r.professor.school.code,
+        } for r in reviews])
+
+    @app.route('/api/moderation/reviews/<int:review_id>', methods=['POST'])
+    @limiter.limit('120 per minute')
+    def moderation_decision(review_id):
+        require_moderator()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or data.get('verdict') not in ('ok', 'remove'):
+            return jsonify({'error': 'verdict must be "ok" or "remove"'}), 400
+        reason = str(data.get('reason') or '')[:AI_REASON_MAX]
+        review = db.session.get(Review, review_id) or abort(404)
+        review.ai_verdict = data['verdict']
+        review.ai_reason = reason or None
+        review.ai_checked_at = datetime.now(timezone.utc)
+        banned = False
+        if data['verdict'] == 'remove':
+            # Hidden, not deleted: a person can restore it from /admin.html if the AI was wrong.
+            if review.status == REVIEW_PUBLISHED:
+                review.status = REVIEW_HIDDEN
+            if data.get('ban') is True:
+                banned = ban_review_author(review, f'AI: {reason}', 'ai') is not None
+        db.session.commit()
+        log.info('AI moderator: review %s %s%s (%s)', review_id, data['verdict'], ' + ban' if banned else '', reason)
+        return jsonify({'success': True, 'banned': banned})
+
+    @app.route('/api/admin/bans', methods=['GET'])
+    @limiter.limit('60 per minute')
+    def admin_bans():
+        require_admin()
+        bans = Ban.query.order_by(Ban.id.desc()).limit(200).all()
+        return jsonify([{
+            'id': b.id, 'kind': b.kind, 'reason': b.reason, 'source': b.source, 'review_id': b.review_id,
+            'created_at': iso(b.created_at), 'expires_at': iso(b.expires_at),
+        } for b in bans])
+
+    @app.route('/api/admin/bans/<int:ban_id>', methods=['DELETE'])
+    @limiter.limit('60 per minute')
+    def admin_unban(ban_id):
+        require_admin()
+        ban = db.session.get(Ban, ban_id) or abort(404)
+        db.session.delete(ban)
+        db.session.commit()
+        log.info('Moderator lifted ban %s', ban_id)
         return jsonify({'success': True})
 
     return app

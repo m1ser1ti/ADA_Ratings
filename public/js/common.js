@@ -1,4 +1,4 @@
-// Shared helpers and components for ADA Ratings pages.
+// Shared helpers and components for ProfScope pages.
 
 export function escapeHtml(value) {
   if (value == null) return '';
@@ -498,7 +498,7 @@ export function openRulesGate() {
     dialog.setAttribute('aria-describedby', 'rules-gate-lead');
     dialog.innerHTML = `
       <form method="dialog" class="rules-gate-form">
-        <span class="rules-gate-badge">ADA Ratings</span>
+        <span class="rules-gate-badge">ProfScope</span>
         <h2 id="rules-gate-title">Before you start</h2>
         <p id="rules-gate-lead" class="rules-gate-lead">Reviews help students choose courses. They only work if they are honest and fair to the professors who are written about.</p>
         <ol class="rules-gate-list">

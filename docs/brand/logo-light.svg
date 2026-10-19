@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
-  <title id="title">ADA Ratings logo</title>
-  <desc id="desc">An open navy book with three gold rising bars and the words ADA Ratings.</desc>
+  <title id="title">ProfScope logo</title>
+  <desc id="desc">An open navy book with three gold rising bars and the words ProfScope.</desc>
   <rect width="1200" height="1200" fill="#FFFFFF"/>
 
   <!-- Rising bars -->
@@ -27,6 +27,6 @@
 
   <!-- Wordmark -->
   <text x="600" y="1000" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="132" font-weight="bold" letter-spacing="-4">
-    <tspan fill="#0A1F44">ADA</tspan><tspan fill="#A37C12"> Ratings</tspan>
+    <tspan fill="#0A1F44">Prof</tspan><tspan fill="#A37C12">Scope</tspan>
   </text>
 </svg>

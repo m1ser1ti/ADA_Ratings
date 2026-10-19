@@ -423,8 +423,8 @@ def iso(dt):
 
 
 META_MARKER = '<!--META-->'
-DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews from ADA University students, across all six schools.'
-DEFAULT_OG_IMAGE = '/img/og-v2.jpg'
+DEFAULT_DESCRIPTION = 'Honest, anonymous professor reviews written by students, across all six schools.'
+DEFAULT_OG_IMAGE = '/img/og-v3.jpg'
 
 
 def site_url():
@@ -439,7 +439,7 @@ def meta_tags(title, description, path, image=None, noindex=False):
         f'<title>{escape(title)}</title>',
         f'<meta name="description" content="{escape(description)}">',
         f'<link rel="canonical" href="{escape(url)}">',
-        '<meta property="og:site_name" content="ADA Ratings">',
+        '<meta property="og:site_name" content="ProfScope">',
         '<meta property="og:type" content="website">',
         f'<meta property="og:title" content="{escape(title)}">',
         f'<meta property="og:description" content="{escape(description)}">',
@@ -570,9 +570,9 @@ def create_app(config=None):
         if ban is None:
             return None
         if is_post:
-            return jsonify({'error': 'Your access to ADA Ratings has been blocked for breaking the site rules.',
+            return jsonify({'error': 'Your access to ProfScope has been blocked for breaking the site rules.',
                             'code': 'blocked'}), 403
-        return render_page(app, 'blocked.html', meta_tags('Access blocked · ADA Ratings', DEFAULT_DESCRIPTION,
+        return render_page(app, 'blocked.html', meta_tags('Access blocked · ProfScope', DEFAULT_DESCRIPTION,
                                                           '/blocked.html', noindex=True), status=403)
 
     @app.after_request
@@ -604,21 +604,21 @@ def create_app(config=None):
 
     @app.route('/')
     def index():
-        meta = meta_tags('ADA Ratings · Rate your professors at ADA University', DEFAULT_DESCRIPTION, '/')
+        meta = meta_tags('ProfScope · Honest, anonymous professor reviews', DEFAULT_DESCRIPTION, '/')
         return render_page(app, 'index.html', meta)
 
     @app.route('/school/<code>')
     def school_page(code):
         school = School.query.filter_by(code=code.upper()).first()
         if not school:
-            meta = meta_tags('School not found · ADA Ratings', DEFAULT_DESCRIPTION, request.path, noindex=True)
+            meta = meta_tags('School not found · ProfScope', DEFAULT_DESCRIPTION, request.path, noindex=True)
             return render_page(app, 'school.html', meta, status=404)
         if code != school.code:
             return redirect(school_path(school.code), 301)
         count = Professor.query.filter(Professor.school_id == school.id, shown_professor()).count()
         meta = meta_tags(
-            f'{school.name} professors · ADA Ratings',
-            f'Ratings and anonymous student reviews of {count} professors at the ADA University {school.name}.',
+            f'{school.name} professors · ProfScope',
+            f'Ratings and anonymous student reviews of {count} professors at the {school.name}.',
             school_path(school.code),
         )
         return render_page(app, 'school.html', meta)
@@ -628,12 +628,12 @@ def create_app(config=None):
     def professor_page(prof_id, slug=None):
         p = db.session.get(Professor, prof_id)
         if not p:
-            meta = meta_tags('Professor not found · ADA Ratings', DEFAULT_DESCRIPTION, request.path, noindex=True)
+            meta = meta_tags('Professor not found · ProfScope', DEFAULT_DESCRIPTION, request.path, noindex=True)
             return render_page(app, 'professor.html', meta, status=404)
         if p.opted_out:
             # Before the slug redirect, so not even the name in the address survives. The page
             # script reads the same 410 from the API and says why the profile is gone.
-            meta = meta_tags('Profile removed · ADA Ratings', PROFILE_REMOVED, request.path, noindex=True)
+            meta = meta_tags('Profile removed · ProfScope', PROFILE_REMOVED, request.path, noindex=True)
             return render_page(app, 'professor.html', meta, status=410)
         if request.path != professor_path(p):
             return redirect(professor_path(p), 301)
@@ -645,7 +645,7 @@ def create_app(config=None):
         else:
             rating = 'No reviews yet — be the first to rate.'
         role = ', '.join(part for part in (p.title, p.school.name) if part)
-        meta = meta_tags(f'{p.name} · ADA Ratings', f'{p.name}, {role} at ADA University. {rating}',
+        meta = meta_tags(f'{p.name} · ProfScope', f'{p.name}, {role}. {rating}',
                          professor_path(p))
         return render_page(app, 'professor.html', meta)
 

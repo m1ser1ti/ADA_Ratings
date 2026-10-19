@@ -458,10 +458,10 @@ def test_professor_page_has_link_preview_tags(client, prof_id):
     res = client.get(f'/professor/{prof_id}-ada-lovelace')
     html = res.get_data(as_text=True)
     assert res.status_code == 200
-    assert '<title>Ada Lovelace · ADA Ratings</title>' in html
+    assert '<title>Ada Lovelace · ProfScope</title>' in html
     assert html.count('<title>') == 1
     assert f'<link rel="canonical" href="http://localhost/professor/{prof_id}-ada-lovelace">' in html
-    assert '<meta property="og:title" content="Ada Lovelace · ADA Ratings">' in html
+    assert '<meta property="og:title" content="Ada Lovelace · ProfScope">' in html
     assert 'No reviews yet' in html
     assert '<!--META-->' not in html
 
@@ -483,7 +483,7 @@ def test_unknown_pages_are_real_404s_and_not_indexed(client):
 def test_school_page_and_old_links(client):
     res = client.get('/school/SITE')
     assert res.status_code == 200
-    assert 'School of IT and Engineering professors · ADA Ratings' in res.get_data(as_text=True)
+    assert 'School of IT and Engineering professors · ProfScope' in res.get_data(as_text=True)
     assert client.get('/school/site').headers['Location'].endswith('/school/SITE')
     assert client.get('/school.html?code=site').headers['Location'].endswith('/school/SITE')
 
@@ -506,7 +506,7 @@ def test_site_url_setting_drives_canonical_links(client, prof_id, monkeypatch):
     monkeypatch.setenv('SITE_URL', 'https://ada-ratings.example/')
     html = client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
     assert f'href="https://ada-ratings.example/professor/{prof_id}-ada-lovelace"' in html
-    assert 'content="https://ada-ratings.example/img/og-v2.jpg"' in html
+    assert 'content="https://ada-ratings.example/img/og-v3.jpg"' in html
 
 
 def test_sitemap_and_robots(client, prof_id):
@@ -965,7 +965,7 @@ def test_banned_browser_gets_the_blocked_page_everywhere(app, client, prof_id):
 def test_blocked_page_keeps_its_title(app, client):
     add_ban(app, BAN_DEVICE, browser_code(app, client))
     html = client.get('/').get_data(as_text=True)
-    assert '<title>Access blocked · ADA Ratings</title>' in html
+    assert '<title>Access blocked · ProfScope</title>' in html
 
 
 def test_banned_browser_can_neither_review_nor_report(app, prof_id):
@@ -1462,7 +1462,7 @@ def test_removed_profile_page_is_gone_and_not_indexed(app, client, prof_id, path
     res = client.get(path.format(id=prof_id))
     html = res.get_data(as_text=True)
     assert res.status_code == 410
-    assert '<title>Profile removed · ADA Ratings</title>' in html
+    assert '<title>Profile removed · ProfScope</title>' in html
     assert "This profile was removed at the professor&#39;s request." in html
     assert '<meta name="robots" content="noindex">' in html
     assert 'Ada Lovelace' not in html

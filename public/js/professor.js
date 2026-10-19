@@ -106,7 +106,7 @@ function renderProfile(p) {
           <li><a class="pill" href="${schoolUrl(p.school)}">${escapeHtml(school ? school.name : p.school)}</a></li>
           ${p.specialization ? `<li><span class="pill">${escapeHtml(p.specialization)}</span></li>` : ''}
         </ul>
-        ${p.active === false ? '<p class="prof-inactive">No longer listed on the ADA University website. Reviews stay for reference.</p>' : ''}
+        ${p.active === false ? '<p class="prof-inactive">No longer listed on the official faculty pages. Reviews stay for reference.</p>' : ''}
       </div>
       <div class="prof-actions">
         <a class="btn btn-primary" href="#review-form">Write a review</a>
@@ -114,7 +114,7 @@ function renderProfile(p) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
           <span>Share</span>
         </button>
-        ${profile ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official ADA profile<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
+        ${profile ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official faculty page<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
       </div>
     </section>`;
 }
@@ -466,7 +466,7 @@ function bindMobileCta() {
 
 function render() {
   const p = professor;
-  document.title = `${p.name} · ADA Ratings`;
+  document.title = `${p.name} · ProfScope`;
   const crumbSchool = document.getElementById('crumb-school');
   crumbSchool.textContent = p.school;
   crumbSchool.href = schoolUrl(p.school);
@@ -510,10 +510,10 @@ function bindShare() {
   button.addEventListener('click', async () => {
     // The canonical link is the clean /professor/<id>-<slug> address the server put in <head>.
     const url = document.querySelector('link[rel="canonical"]')?.href || window.location.href;
-    const title = `${professor.name} · ADA Ratings`;
+    const title = `${professor.name} · ProfScope`;
     if (navigator.share) {
       try {
-        await navigator.share({ title, text: `Student reviews of ${professor.name} at ADA University`, url });
+        await navigator.share({ title, text: `Anonymous student reviews of ${professor.name} on ProfScope`, url });
       } catch { /* the user closed the share sheet */ }
       return;
     }
@@ -741,14 +741,14 @@ function bindForm() {
 }
 
 function removedProfile(message) {
-  document.title = 'Profile removed · ADA Ratings';
+  document.title = 'Profile removed · ProfScope';
   document.getElementById('crumb-prof').textContent = 'Profile removed';
   root.innerHTML = `<div class="state" style="margin-top:28px"><h1 class="state-title">Profile removed</h1><p>${escapeHtml(message)} <a href="/">Go to all schools</a>.</p></div>`;
   root.removeAttribute('aria-busy');
 }
 
 function notFound(message) {
-  document.title = 'Professor not found · ADA Ratings';
+  document.title = 'Professor not found · ProfScope';
   document.getElementById('crumb-prof').textContent = 'Not found';
   root.innerHTML = `<div class="state"><h1 class="state-title">Professor not found</h1><p>${message} <a href="/">Go to all schools</a>.</p></div>`;
   root.removeAttribute('aria-busy');

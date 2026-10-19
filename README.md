@@ -1,12 +1,12 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-transparent-dark.svg">
-    <img src="docs/brand/logo-transparent-light.svg" alt="ADA Ratings" width="180">
+    <img src="docs/brand/logo-transparent-light.svg" alt="ProfScope" width="180">
   </picture>
 </p>
 
 <p align="center">
-  Anonymous professor reviews for ADA University students.<br>
+  Anonymous professor reviews written by students. An independent project, not affiliated with any university.<br>
   <a href="https://www.adaratings.net"><strong>www.adaratings.net</strong></a>
 </p>
 
@@ -18,7 +18,7 @@
 
 ## Features
 
-- **140 professors** across all six ADA schools (SPIA, SITE, SB, LAW, SAFS, SDA), kept in sync with the official faculty pages on ada.edu.az
+- **140 professors** across all six schools (SPIA, SITE, SB, LAW, SAFS, SDA), kept in sync with the official faculty pages on ada.edu.az
 - **Anonymous reviews** with a 1–10 rating, course code, difficulty, "would take again" and tags
 - **Moderation:** profanity filter (English, Russian, Azerbaijani), reports from different networks hide a review until a moderator checks it, private admin queue
 - **Abuse protection:** per-browser, per-network and per-professor rate limits backed by Redis

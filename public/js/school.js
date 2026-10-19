@@ -22,7 +22,7 @@ function renderHero() {
   document.getElementById('school-code').textContent = code || 'School';
   document.getElementById('crumb-school').textContent = school ? school.name : (code || 'School');
   document.getElementById('school-name').textContent = school ? school.name : (code || 'School');
-  if (code) document.title = `${school ? school.name : code} · ADA Ratings`;
+  if (code) document.title = `${school ? school.name : code} · ProfScope`;
 
   // The hero is painted with the school's colours and pattern; the big code is decoration.
   const hero = document.getElementById('school-hero');

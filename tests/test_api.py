@@ -73,9 +73,24 @@ def test_bad_ratings_rejected(client, prof_id, rating):
     assert post_review(client, professor_id=prof_id, rating=rating).status_code == 400
 
 
-@pytest.mark.parametrize('text', [123, ['a'], '   short ', 'x' * 5001])
+@pytest.mark.parametrize('text', [123, ['a'], 'x' * 5001])
 def test_bad_texts_rejected(client, prof_id, text):
     assert post_review(client, professor_id=prof_id, text=text).status_code == 400
+
+
+@pytest.mark.parametrize('text', [None, '', '   ', 'Ok'])
+def test_written_review_is_optional(client, prof_id, text):
+    res = post_review(client, professor_id=prof_id, text=text)
+    assert res.status_code == 201
+    assert res.get_json()['review']['text'] == (text or '').strip()
+
+
+def test_rating_only_review_counts_but_stays_out_of_the_feed(app, client, prof_id):
+    post_review(client, professor_id=prof_id, text=None)
+    post_review(new_browser(app), professor_id=prof_id, text='Clear lectures and fair exams.')
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert prof['review_count'] == 2
+    assert [r['text'] for r in client.get('/api/reviews/recent').get_json()] == ['Clear lectures and fair exams.']
 
 
 def test_profanity_rejected_even_with_zero_width_tricks(client, prof_id):
@@ -164,7 +179,7 @@ def test_professor_wide_cap_stops_a_pile_on(app, prof_id):
     assert codes[20] == 429
 
 
-@pytest.mark.parametrize('length, status', [(9, 400), (10, 201), (5000, 201)])
+@pytest.mark.parametrize('length, status', [(1, 201), (5000, 201), (5001, 400)])
 def test_review_length_boundaries(client, prof_id, length, status):
     assert post_review(client, professor_id=prof_id, text='a' * length).status_code == status
 

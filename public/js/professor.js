@@ -4,7 +4,6 @@ import {
 } from './common.js';
 import { SCHOOLS } from './schools.js';
 
-const MIN_LENGTH = 10;
 const MAX_LENGTH = 5000;
 
 const profId = Number(pathParam(/^\/professor\/(\d+)/));
@@ -203,7 +202,7 @@ function renderForm(p) {
   return `
     <section class="card review-form" id="review-form" aria-labelledby="form-title">
       <h2 id="form-title">Rate this professor</h2>
-      <p class="form-hint" id="form-hint">Reviews are anonymous. Be honest, specific and respectful — describe the teaching, not the person. Only the rating and the review are required. <a href="/rules.html">Review rules</a></p>
+      <p class="form-hint" id="form-hint">Reviews are anonymous. Be honest, specific and respectful — describe the teaching, not the person. Only the rating is required — a written review is optional. <a href="/rules.html">Review rules</a></p>
       <form novalidate>
         <fieldset class="fieldset" id="rating-field" role="radiogroup" aria-required="true">
           <legend>Your rating <span class="visually-hidden">(1 is worst, 10 is best)</span></legend>
@@ -234,9 +233,9 @@ function renderForm(p) {
           <div class="tag-picker">${tags}</div>
           <p class="field-error" id="tags-error"></p>
         </fieldset>
-        <label class="label" for="review-text">Your review <span class="label-hint">(at least ${MIN_LENGTH} characters)</span></label>
-        <textarea class="textarea" id="review-text" name="text" maxlength="${MAX_LENGTH}" required
-          aria-describedby="text-error char-count" placeholder="What was the course like? How were lectures, workload and grading?"></textarea>
+        <label class="label" for="review-text">Your review <span class="label-hint">(optional)</span></label>
+        <textarea class="textarea" id="review-text" name="text" maxlength="${MAX_LENGTH}"
+          aria-describedby="text-error char-count" placeholder="Optional: what was the course like? How were lectures, workload and grading?"></textarea>
         <span class="char-count" id="char-count">0 / ${MAX_LENGTH}</span>
         <p class="field-error" id="text-error"></p>
         <button type="submit" class="btn btn-primary">Submit review</button>
@@ -272,7 +271,7 @@ function renderReviewItems(reviews, sort) {
         ${action}
       </div>
       ${reviewDetails(r)}
-      <p>${escapeHtml(r.text)}</p>
+      ${r.text ? `<p>${escapeHtml(r.text)}</p>` : '<p class="review-empty">Rated without a written review.</p>'}
     </li>`;
   }).join('');
 }
@@ -507,7 +506,6 @@ function bindForm() {
     const n = textarea.value.length;
     counter.textContent = `${n} / ${MAX_LENGTH}`;
     counter.classList.toggle('warn', n > MAX_LENGTH * 0.9);
-    if (textarea.value.trim().length >= MIN_LENGTH) setFieldError('text-error', '', [textarea]);
   });
 
   function setBusy(busy, label) {
@@ -534,13 +532,10 @@ function bindForm() {
     const courseCode = course.value.trim() ? normalizeCourse(course.value) : '';
     const ratingMsg = checked ? '' : 'Choose a rating from 1 to 10.';
     const courseMsg = courseCode === null ? 'Use a course code like CS 1101, or leave it empty.' : '';
-    const textMsg = text.length < MIN_LENGTH ? `Write at least ${MIN_LENGTH} characters.` : '';
     setFieldError('rating-error', ratingMsg, radios);
     setFieldError('course-error', courseMsg, [course]);
-    setFieldError('text-error', textMsg, [textarea]);
     if (ratingMsg) { radios[0].focus(); return; }
     if (courseMsg) { course.focus(); return; }
-    if (textMsg) { textarea.focus(); return; }
 
     const body = { professor_id: professor.id, rating: Number(checked.value), text };
     if (courseCode) body.course_code = courseCode;

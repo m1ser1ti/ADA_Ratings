@@ -26,7 +26,6 @@ from models import REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Professor, R
 
 log = logging.getLogger(__name__)
 
-MIN_REVIEW_LENGTH = 10
 MAX_REVIEW_LENGTH = 5000
 # One or two reviews say little, and let a single angry student define a professor.
 MIN_REVIEWS_FOR_AVERAGE = 3
@@ -697,12 +696,13 @@ def create_app(config=None):
         if not 1 <= rating <= 10:
             return jsonify({'error': 'Rating must be between 1 and 10'}), 400
 
+        # The written review is optional: a student may leave only a rating.
         raw = data.get('text')
+        if raw is None:
+            raw = ''
         if not isinstance(raw, str):
-            return jsonify({'error': 'Review text is required'}), 400
+            return jsonify({'error': 'Review text must be text'}), 400
         review_text = normalize_text(raw)
-        if len(review_text) < MIN_REVIEW_LENGTH:
-            return jsonify({'error': f'Review must be at least {MIN_REVIEW_LENGTH} characters'}), 400
         if len(review_text) > MAX_REVIEW_LENGTH:
             return jsonify({'error': f'Review is too long (max {MAX_REVIEW_LENGTH} characters)'}), 400
         if profanity.contains_profanity(review_text):
@@ -731,7 +731,7 @@ def create_app(config=None):
         limit = min(max(request.args.get('limit', 6, type=int), 1), 20)
         reviews = (
             Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
-            .filter(Review.status == REVIEW_PUBLISHED)
+            .filter(Review.status == REVIEW_PUBLISHED, Review.text != '')  # rating-only reviews have nothing to quote
             .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
             .limit(limit)
             .all()

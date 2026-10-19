@@ -1210,6 +1210,7 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
 .review .tag-list { margin-bottom: 12px; }
 .review p { font-size: 17px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .review.is-new { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.review p.review-empty { font-size: 15px; font-style: italic; color: var(--text-2); }
 .review-report {
   margin-left: auto;
   min-height: 32px;

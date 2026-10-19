@@ -22,11 +22,12 @@ def normalise_url(url):
 def copy_database(source_engine, target_engine):
     """Replace everything in the target with the source's rows. Returns {table: row count}."""
     tables = db.metadata.sorted_tables  # parents before children
-    db.metadata.create_all(target_engine)
     counts = {}
     with source_engine.connect() as src, target_engine.begin() as dst:
-        for table in reversed(tables):
-            dst.execute(table.delete())
+        # Rebuild the target's tables from the current models, so columns added since the
+        # last run exist there too. On Postgres this DDL is part of the same transaction.
+        db.metadata.drop_all(dst)
+        db.metadata.create_all(dst)
         for table in tables:
             rows = src.execute(select(table).order_by(*table.primary_key.columns)).mappings()
             batch, total = [], 0

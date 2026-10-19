@@ -857,6 +857,21 @@ def test_backup_copies_everything_and_restores(tmp_path, app, client, prof_id):
             assert con.execute(text('SELECT text FROM review')).scalar() == 'Worth backing up, great course.'
 
 
+
+def test_backup_into_an_older_backup_schema(tmp_path, app, prof_id):
+    """A backup database made before new columns existed is rebuilt, not left failing."""
+    from sqlalchemy import create_engine, text
+    from backup import copy_database
+    from extensions import db
+    target = create_engine(f'sqlite:///{tmp_path / "old.db"}')
+    with target.begin() as con:
+        con.execute(text('CREATE TABLE professor (id INTEGER PRIMARY KEY, name VARCHAR(100))'))
+        con.execute(text("INSERT INTO professor (id, name) VALUES (99, 'Stale')"))
+    with app.app_context():
+        assert copy_database(db.engine, target)['professor'] == 2
+    with target.connect() as con:
+        assert con.execute(text('SELECT COUNT(*) FROM professor WHERE opted_out = 0')).scalar() == 2
+
 # ---------- Site rules ----------
 
 def test_review_waits_for_the_rules_to_be_accepted(app, prof_id):

@@ -33,6 +33,11 @@ export const SCHOOLS = {
     art: { from: '#2b1806', to: '#7b4f10', glow: '#f3c65a', pattern: 'iso' },
     icon: '<path d="M4 20 20 4v16z"/><path d="M12 20v-4M16 20v-8"/><path d="M8.5 15.5h3.5V12"/>',
   },
+  SE: {
+    name: 'School of Education',
+    art: { from: '#0b2a3c', to: '#13607a', glow: '#7fd6f0', pattern: 'rings' },
+    icon: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/><path d="M22 9v6"/>',
+  },
 };
 
 // Unknown codes still get a calm navy tile.

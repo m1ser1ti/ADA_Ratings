@@ -1,6 +1,6 @@
 {
  "source": "https://www.ada.edu.az/en/schools/<code>/members/faculty",
- "checked": "2026-10-18",
+ "checked": "2026-10-19",
  "professors": [
   {
    "school": "SPIA",
@@ -1121,6 +1121,116 @@
    "specialization": "Design and Architecture",
    "image_url": "https://www.ada.edu.az/media/2026/09/28/1to1_medium/laura_sangiorgi.jpg",
    "profile_url": "https://www.ada.edu.az/en/schools/sda/members/faculty/533-laura-sangiorgi"
+  },
+  {
+   "school": "SE",
+   "name": "Ulviyya Mikayilova",
+   "title": "Dean, School of Education",
+   "specialization": "Education/Education Leadership",
+   "image_url": "https://www.ada.edu.az/media/2024/06/05/1to1_medium/ulviyya_mikayilova.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/284-ulviyya-mikayilova"
+  },
+  {
+   "school": "SE",
+   "name": "Vafa Kazdal",
+   "title": "Vice Rector, Strategy and Advancement",
+   "specialization": "Member of Management Board, Gazakh Teachers' Seminary",
+   "image_url": "https://www.ada.edu.az/media/2024/07/05/1to1_medium/whatsapp_image_2024_07_05_at_10_10_00_1_.jpeg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/391-vafa-kazdal"
+  },
+  {
+   "school": "SE",
+   "name": "Jeyran Aghayeva",
+   "title": "Assistant Professor",
+   "specialization": "Education Management",
+   "image_url": "https://www.ada.edu.az/media/2024/06/05/1to1_medium/jeyran_aghayeva.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/288-jeyran-aghayeva"
+  },
+  {
+   "school": "SE",
+   "name": "Samira Hajiyeva",
+   "title": "Assistant Professor",
+   "specialization": "Education Management",
+   "image_url": "https://www.ada.edu.az/media/2024/06/05/1to1_medium/samira_hajiyeva.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/292-samira-hajiyeva"
+  },
+  {
+   "school": "SE",
+   "name": "Turana Aliyeva",
+   "title": "Assistant Professor",
+   "specialization": "Psychology",
+   "image_url": "https://www.ada.edu.az/media/2024/06/05/1to1_medium/turana_aliyeva.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/295-turana-aliyeva"
+  },
+  {
+   "school": "SE",
+   "name": "Vafa Yunusova",
+   "title": "Assistant Professor",
+   "specialization": "Education Management",
+   "image_url": "https://www.ada.edu.az/media/2024/06/05/1to1_medium/vafa_yunusova.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/296-vafa-yunusova"
+  },
+  {
+   "school": "SE",
+   "name": "Sevgi Turan",
+   "title": "Visiting Professor",
+   "specialization": "Teaching and Learning",
+   "image_url": "https://www.ada.edu.az/media/2024/11/06/1to1_medium/sevgi_turan.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/370-sevgi-turan"
+  },
+  {
+   "school": "SE",
+   "name": "Ulker Ibrahimova",
+   "title": "Instructor",
+   "specialization": "Education Management",
+   "image_url": "https://www.ada.edu.az/media/2026/05/13/1to1_medium/whatsapp_image_2026_05_13_at_16_06_02.jpeg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/308-ulker-ibrahimova"
+  },
+  {
+   "school": "SE",
+   "name": "Majid Bayramli",
+   "title": "Assistant Professor",
+   "specialization": "Education Policy",
+   "image_url": "https://www.ada.edu.az/media/2025/10/16/1to1_medium/majid_bayramli.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/471-majid-bayramli"
+  },
+  {
+   "school": "SE",
+   "name": "Konul Abasli",
+   "title": "Assistant Professor",
+   "specialization": "Education Management",
+   "image_url": "https://www.ada.edu.az/media/2025/12/03/1to1_medium/konul_abasli-2.jpg",
+   "profile_url": "https://www.ada.edu.az/en/schools/se/members/faculty/478-konul-abasli"
+  }
+ ],
+ "schools": [
+  {
+   "code": "SPIA",
+   "name": "School of Public and International Affairs"
+  },
+  {
+   "code": "SITE",
+   "name": "School of IT and Engineering"
+  },
+  {
+   "code": "SB",
+   "name": "School of Business"
+  },
+  {
+   "code": "LAW",
+   "name": "School of Law"
+  },
+  {
+   "code": "SAFS",
+   "name": "School of Agricultural and Food Sciences"
+  },
+  {
+   "code": "SDA",
+   "name": "School of Design and Architecture"
+  },
+  {
+   "code": "SE",
+   "name": "School of Education"
   }
  ]
 }

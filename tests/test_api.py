@@ -283,8 +283,8 @@ def test_init_db_is_idempotent_and_never_reseeds(app):
     from extensions import db
     from models import School
     with app.app_context():
-        init_db(seed_if_empty=True)
-        init_db(seed_if_empty=True)
+        init_db(seed_if_empty=True, sync=False)
+        init_db(seed_if_empty=True, sync=False)
         assert db.session.query(School).count() == 1  # the fixture's school; the seed never ran
 
 
@@ -295,7 +295,7 @@ def test_seed_data_is_consistent():
     seeded = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite://', 'SEED_IF_EMPTY': True})
     with seeded.app_context():
         codes = {s.code for s in School.query.all()}
-        assert codes == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA'}
+        assert codes == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE'}
         names = [p.name for p in Professor.query.all()]
         assert len(names) == len(set(names)), 'duplicate professor names in seed data'
         assert all(p.school_id for p in Professor.query.all())
@@ -790,7 +790,7 @@ def test_shipped_faculty_file_is_valid():
     from faculty import load_faculty
     entries = load_faculty()
     assert len(entries) >= 100
-    assert {e['school'] for e in entries} == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA'}
+    assert {e['school'] for e in entries} == {'SPIA', 'SITE', 'SB', 'LAW', 'SAFS', 'SDA', 'SE'}
     assert len({e['profile_url'] for e in entries}) == len(entries)
     for e in entries:
         assert e['name'] and e['profile_url'].startswith('https://www.ada.edu.az/')
@@ -1599,3 +1599,17 @@ def test_legacy_professor_table_gains_opted_out(tmp_path):
     assert removal_request(browser, 1, message='Please remove my profile').status_code == 202
     with old.app_context():
         db.engine.dispose()
+
+
+
+def test_faculty_sync_adds_missing_schools(app):
+    """Schools listed in data/faculty.json but missing from an older database are created once."""
+    from faculty import sync_faculty
+    from models import School
+    with app.app_context():
+        sync_faculty()
+        sync_faculty()
+        codes = [s.code for s in School.query.all()]
+        assert sorted(codes) == sorted(set(codes)) and 'SE' in codes
+        se = School.query.filter_by(code='SE').one()
+        assert se.name == 'School of Education' and len(se.professors) == 10

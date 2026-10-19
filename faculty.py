@@ -38,6 +38,19 @@ def load_faculty(path=FACULTY_FILE):
         return json.load(f)['professors']
 
 
+def ensure_schools(path=FACULTY_FILE):
+    """Create schools listed in the data file that the database does not have yet."""
+    with open(path, encoding='utf-8') as f:
+        listed = json.load(f).get('schools', [])
+    known = {s.code for s in School.query.all()}
+    added = [School(code=s['code'], name=s['name']) for s in listed
+             if isinstance(s, dict) and s.get('code') and s.get('name') and s['code'] not in known]
+    db.session.add_all(added)
+    if added:
+        db.session.commit()
+        log.info('Added schools: %s', ', '.join(s.code for s in added))
+
+
 # Professors must keep at least this share of the active list, or the sync refuses to hide anyone:
 # a truncated or broken faculty.json must not empty the site.
 MIN_KEEP_SHARE = 0.5
@@ -60,7 +73,9 @@ def clean_entry(entry):
 
 def sync_faculty(entries=None):
     """Bring the professor table in line with the official list. Returns a change summary."""
-    entries = load_faculty() if entries is None else entries
+    if entries is None:
+        ensure_schools()
+        entries = load_faculty()
     schools = {s.code: s for s in School.query.all()}
     existing = Professor.query.all()
     by_url = {p.profile_url: p for p in existing if p.profile_url}

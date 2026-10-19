@@ -1631,6 +1631,10 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  /* The gradient only paints inside the box; italic letters lean past it, so give them room
+     (padding) without moving anything (matching negative margin). */
+  padding: 0 0.12em 0.08em 0.04em;
+  margin: 0 -0.12em -0.08em -0.04em;
   animation: shine 6s ease-in-out 1.2s infinite;
 }
 

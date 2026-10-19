@@ -553,21 +553,21 @@ button, input, select, textarea { font: inherit; letter-spacing: inherit; }
 .hero .hero-stats { color: var(--hero-lead); }
 .hero .hero-stats li + li { border-color: rgba(0, 0, 0, 0.18); }
 :root[data-theme="dark"] .hero {
-  --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.74) 55%, var(--bg) 100%);
+  --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.74) 0%, rgba(0, 0, 0, 0.84) 55%, var(--bg) 100%);
   --glass: rgba(28, 28, 30, 0.62);
   --glass-line: rgba(255, 255, 255, 0.14);
   --hero-lead: #d1d1d6;
 }
-:root[data-theme="dark"] .hero-bg img { filter: blur(16px) saturate(1.1) brightness(0.8); }
+:root[data-theme="dark"] .hero-bg img { filter: blur(18px) saturate(1.05) brightness(0.55); }
 :root[data-theme="dark"] .hero .hero-stats li + li { border-color: rgba(255, 255, 255, 0.22); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .hero {
-    --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.74) 55%, var(--bg) 100%);
+    --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.74) 0%, rgba(0, 0, 0, 0.84) 55%, var(--bg) 100%);
     --glass: rgba(28, 28, 30, 0.62);
     --glass-line: rgba(255, 255, 255, 0.14);
     --hero-lead: #d1d1d6;
   }
-  :root:not([data-theme="light"]) .hero-bg img { filter: blur(16px) saturate(1.1) brightness(0.8); }
+  :root:not([data-theme="light"]) .hero-bg img { filter: blur(18px) saturate(1.05) brightness(0.55); }
   :root:not([data-theme="light"]) .hero .hero-stats li + li { border-color: rgba(255, 255, 255, 0.22); }
 }
 .eyebrow {

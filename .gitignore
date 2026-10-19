@@ -1,29 +1,21 @@
 # Python
+.venv/
 venv/
 __pycache__/
-*.pyc
-*.pyo
+*.py[co]
 .pytest_cache/
 
-# Flask / SQLite
+# Local databases and secrets
 instance/
 *.db
-ada_ratings.db
+.env
 
-# macOS
+# OS and editors
 .DS_Store
-
-# Editors
+Icon?
 .vscode/
 .idea/
 *.swp
-
-# Virtualenvs and local clutter
-.venv/
-.env
-Icon?
-ada-ratings/
-node_modules/
 
 # Local Claude Code settings
 .claude/

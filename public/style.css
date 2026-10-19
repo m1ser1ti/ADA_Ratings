@@ -1170,6 +1170,7 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.recent-empty { font-size: 15px; font-style: italic; color: var(--text-2); }
 .recent-prof {
   display: flex;
   align-items: center;

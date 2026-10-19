@@ -827,8 +827,7 @@ def create_app(config=None):
         reviews = (
             Review.query.join(Review.professor)
             .options(contains_eager(Review.professor).joinedload(Professor.school))
-            .filter(Review.status == REVIEW_PUBLISHED, Review.text != '',  # rating-only reviews have nothing to quote
-                    Professor.opted_out.is_(False))
+            .filter(Review.status == REVIEW_PUBLISHED, Professor.opted_out.is_(False))
             .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
             .limit(limit)
             .all()

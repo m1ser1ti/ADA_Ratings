@@ -116,13 +116,13 @@ def test_written_review_is_optional(client, prof_id, text):
     assert res.get_json()['review']['text'] == (text or '').strip()
 
 
-def test_rating_only_review_counts_but_stays_out_of_the_feed(app, client, prof_id):
+def test_rating_only_review_counts_and_shows_in_the_feed(app, client, prof_id):
     post_review(client, professor_id=prof_id, text=None)
     post_review(new_browser(app), professor_id=prof_id, text='Clear lectures and fair exams.')
     approve_all(app)
     prof = client.get(f'/api/professors/{prof_id}').get_json()
     assert prof['review_count'] == 2
-    assert [r['text'] for r in client.get('/api/reviews/recent').get_json()] == ['Clear lectures and fair exams.']
+    assert sorted(r['text'] for r in client.get('/api/reviews/recent').get_json()) == ['', 'Clear lectures and fair exams.']
 
 
 def test_profanity_rejected_even_with_zero_width_tricks(client, prof_id):

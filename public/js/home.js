@@ -107,7 +107,7 @@ async function loadRecent() {
           ${ratingBadge(r.rating)}
           ${r.created_at ? `<time datetime="${escapeHtml(r.created_at)}">${escapeHtml(formatDate(r.created_at))}</time>` : ''}
         </div>
-        <p class="recent-text">${escapeHtml(r.text)}</p>
+        ${r.text ? `<p class="recent-text">${escapeHtml(r.text)}</p>` : '<p class="recent-text recent-empty">Rated without a written review.</p>'}
         <a class="recent-prof" href="${escapeHtml(r.professor.url)}">
           <span>${escapeHtml(r.professor.name)}</span>
           <span class="recent-school">${escapeHtml(r.professor.school)}</span>

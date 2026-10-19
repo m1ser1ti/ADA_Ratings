@@ -59,7 +59,7 @@ export async function api(path, options) {
 }
 
 const PROFESSORS_KEY = 'ada-ratings:professors';
-const PROFESSORS_TTL = 5 * 60 * 1000;
+const PROFESSORS_TTL = 60 * 1000;
 
 // All professors, shared by search on every page; cached for a few minutes per tab.
 export async function allProfessors() {

@@ -529,7 +529,7 @@ def create_app(config=None):
         # Pages, CSS and JS revalidate with their ETag so a deploy shows up at once.
         if request.path in CACHEABLE_API and request.method == 'GET' and response.status_code == 200:
             # Shared lists change slowly; a short cache saves a round trip on every page view.
-            response.headers['Cache-Control'] = 'public, max-age=30'
+            response.headers['Cache-Control'] = 'public, max-age=5'
         elif request.path.startswith('/api/'):
             response.headers.setdefault('Cache-Control', 'no-store')
         elif request.path.startswith('/img/og-'):

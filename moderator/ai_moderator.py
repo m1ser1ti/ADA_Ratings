@@ -40,7 +40,7 @@ DEFAULTS = {
     'MODERATOR_TOKEN': '',
     'OLLAMA_URL': 'http://localhost:11434',
     'OLLAMA_MODEL': 'qwen3:14b',
-    'POLL_SECONDS': '60',
+    'POLL_SECONDS': '10',
 }
 USER_AGENT = 'ada-ratings-moderator/1.0'
 
@@ -330,6 +330,8 @@ def classify(config, review):
         'think': False,  # qwen3: answer directly, no long reasoning first
         'format': DECISION_SCHEMA,
         'options': {'temperature': 0, 'num_ctx': NUM_CTX},
+        # Keep the model in memory between reviews: reloading it costs 20-40 s.
+        'keep_alive': -1,
     }
     for attempt in (1, 2):
         answer = request_json(config['OLLAMA_URL'] + '/api/chat', payload, timeout=OLLAMA_TIMEOUT)

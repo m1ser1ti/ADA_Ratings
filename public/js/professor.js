@@ -80,6 +80,33 @@ function loadAwaiting() {
   try { return JSON.parse(sessionStorage.getItem(AWAITING_KEY) || 'null'); } catch { return null; }
 }
 
+// While the author's review waits for the moderator, check every few seconds and show it
+// the moment it is approved (the AI usually decides within half a minute).
+let approvalTimer = null;
+function watchApproval() {
+  clearTimeout(approvalTimer);
+  if (!awaitingReview) return;
+  const started = Date.now();
+  const check = async () => {
+    if (!awaitingReview || Date.now() - started > 5 * 60 * 1000) return;
+    try {
+      const fresh = await api(`/api/professors/${profId}`);
+      if (fresh.reviews.some(r => r.id === awaitingReview.id)) {
+        professor = fresh;
+        newReviewId = awaitingReview.id;
+        awaitingReview = null;
+        saveAwaiting(null);
+        forgetProfessors();
+        render();
+        announce('Your review is now published.');
+        return;
+      }
+    } catch { /* offline for a moment: try again */ }
+    approvalTimer = setTimeout(check, 5000);
+  };
+  approvalTimer = setTimeout(check, 4000);
+}
+
 function saveAwaiting(review) {
   try {
     if (review) sessionStorage.setItem(AWAITING_KEY, JSON.stringify(review));
@@ -722,6 +749,7 @@ function bindForm() {
       sent.scrollIntoView({ block: 'center' });
       sent.focus({ preventScroll: true });
       announce(AWAITING_MESSAGE);
+      watchApproval();
       return;
     }
     newReviewId = res?.review?.id ?? null;
@@ -776,6 +804,7 @@ async function load() {
     saveAwaiting(null);
   }
   render();
+  watchApproval();
 }
 
 load();

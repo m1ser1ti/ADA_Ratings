@@ -272,7 +272,7 @@ def test_hsts_only_over_https(client):
 
 
 def test_cache_headers(client):
-    assert client.get('/api/schools').headers['Cache-Control'] == 'public, max-age=30'
+    assert client.get('/api/schools').headers['Cache-Control'] == 'public, max-age=5'
     assert client.get('/api/professors/1').headers['Cache-Control'] == 'no-store'
     assert client.get('/favicon.svg').headers['Cache-Control'] == 'public, max-age=2592000'
     assert client.get('/style.css').headers['Cache-Control'] == 'no-cache'

@@ -17,7 +17,9 @@ ENV_DIR="$HOME/.config/ada-ratings"
 ENV_FILE="$ENV_DIR/moderator.env"
 DOMAIN="gui/$(id -u)"
 
-PYTHON="$(command -v python3 || true)"
+# Prefer macOS's own Python: it trusts the system certificates (python.org builds may not).
+if [ -z "${PYTHON:-}" ] && [ -x /usr/bin/python3 ]; then PYTHON=/usr/bin/python3; fi
+PYTHON="${PYTHON:-$(command -v python3 || true)}"
 if [ -z "$PYTHON" ]; then
   echo "python3 not found. Install it (e.g. xcode-select --install) and run this again." >&2
   exit 1
@@ -31,10 +33,15 @@ escape() {
   printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/[|\\&]/\\&/g'
 }
 
-mkdir -p "$AGENTS" "$HOME/Library/Logs"
+# macOS privacy rules stop background agents from reading files in Desktop/Documents,
+# so the script runs from a copy in Application Support (re-run this after updating it).
+RUN_DIR="$HOME/Library/Application Support/ada-ratings"
+mkdir -p "$AGENTS" "$HOME/Library/Logs" "$RUN_DIR"
+cp "$SCRIPT" "$RUN_DIR/ai_moderator.py"
+SCRIPT="$RUN_DIR/ai_moderator.py"
 sed -e "s|__PYTHON__|$(escape "$PYTHON")|g" \
     -e "s|__SCRIPT__|$(escape "$SCRIPT")|g" \
-    -e "s|__WORKDIR__|$(escape "$HERE")|g" \
+    -e "s|__WORKDIR__|$(escape "$RUN_DIR")|g" \
     -e "s|__HOME__|$(escape "$HOME")|g" \
     "$TEMPLATE" > "$PLIST"
 plutil -lint "$PLIST" >/dev/null

@@ -7,7 +7,7 @@
 
 <p align="center">
   Anonymous professor reviews written by students. An independent project, not affiliated with any university.<br>
-  <a href="https://www.adaratings.net"><strong>www.adaratings.net</strong></a>
+  <a href="https://www.profscope.com"><strong>www.profscope.com</strong></a>
 </p>
 
 <p align="center">
@@ -56,6 +56,7 @@ docs/brand/       Logo files
 | `SECRET_KEY` | Key for the one-way network codes stored with reports. Set a long random value so they stay comparable across restarts. |
 | `ADMIN_TOKEN` | Turns on the moderation queue at `/admin.html`; without it the admin API does not exist. |
 | `SITE_URL` | Public origin for canonical links, link previews and the sitemap. |
+| `REDIRECT_HOSTS` | Old domains, comma separated. Their pages show a "we moved" notice and forward to the same page on `SITE_URL`. |
 | `TRUST_PROXY` | Set to `1` behind exactly one hosting proxy so the real client address is used. |
 | `BACKUP_DATABASE_URL` | A second Postgres for nightly copies (see Backups). |
 

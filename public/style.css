@@ -460,7 +460,7 @@ button, input, select, textarea { font: inherit; letter-spacing: inherit; }
   background: var(--surface-2);
   border-radius: 16px;
 }
-.search--hero .search-input:focus { background: var(--surface); box-shadow: var(--shadow-pop), 0 0 0 4px var(--accent-soft); }
+.search--hero .search-input:focus { background: var(--surface); border-color: var(--accent); box-shadow: var(--shadow-pop), 0 0 0 4px var(--accent-soft); }
 .search--hero .search-icon { left: 20px; }
 .search-submit {
   position: absolute;
@@ -520,7 +520,56 @@ button, input, select, textarea { font: inherit; letter-spacing: inherit; }
 
 /* ---------- Home hero (headline kept from the first design) ---------- */
 
-.hero { padding: 88px 0; text-align: center; }
+/* A fixed, blurred campus photo sits behind the headline. clip-path keeps the fixed layer
+   inside the hero (it also works on iOS, where background-attachment: fixed does not). */
+.hero {
+  --hero-wash: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.72) 55%, var(--bg) 100%);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.9);
+  --hero-lead: #3a3a3c;
+  position: relative;
+  isolation: isolate;
+  clip-path: inset(0);
+  padding: 96px 0 88px;
+  text-align: center;
+}
+.hero-bg { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+.hero-bg img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: blur(10px) saturate(1.25);
+  transform: scale(1.12);
+  animation: hero-drift 28s ease-in-out infinite alternate;
+}
+.hero::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--hero-wash); pointer-events: none; }
+.hero .hero-lead { color: var(--hero-lead); }
+.hero .eyebrow, .hero .chip, .search--hero .search-input {
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  backdrop-filter: saturate(180%) blur(18px);
+  border-color: var(--glass-line);
+}
+.search--hero .search-input { box-shadow: 0 12px 40px -16px rgba(0, 0, 0, 0.35); }
+.hero .hero-stats { color: var(--hero-lead); }
+.hero .hero-stats li + li { border-color: rgba(0, 0, 0, 0.18); }
+:root[data-theme="dark"] .hero {
+  --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.74) 55%, var(--bg) 100%);
+  --glass: rgba(28, 28, 30, 0.62);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  --hero-lead: #d1d1d6;
+}
+:root[data-theme="dark"] .hero-bg img { filter: blur(16px) saturate(1.1) brightness(0.8); }
+:root[data-theme="dark"] .hero .hero-stats li + li { border-color: rgba(255, 255, 255, 0.22); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hero {
+    --hero-wash: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.74) 55%, var(--bg) 100%);
+    --glass: rgba(28, 28, 30, 0.62);
+    --glass-line: rgba(255, 255, 255, 0.14);
+    --hero-lead: #d1d1d6;
+  }
+  :root:not([data-theme="light"]) .hero-bg img { filter: blur(16px) saturate(1.1) brightness(0.8); }
+  :root:not([data-theme="light"]) .hero .hero-stats li + li { border-color: rgba(255, 255, 255, 0.22); }
+}
 .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -1274,6 +1323,80 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
 
 .mobile-cta { display: none; }
 
+
+/* ---------- Motion ---------- */
+
+@keyframes hero-drift {
+  from { transform: scale(1.12) translate3d(0, 0, 0); }
+  to { transform: scale(1.22) translate3d(-2%, -1.5%, 0); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+@keyframes rise-scroll { from { opacity: 0; transform: translateY(36px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes shine { 0%, 55% { background-position: 120% 0; } 100% { background-position: -40% 0; } }
+
+/* Home: the headline block arrives in sequence. */
+.hero .eyebrow, .hero h1, .hero-lead, .search--hero, .hero-chips, .hero-stats, .hero-visual {
+  animation: rise 0.9s var(--ease) both;
+}
+.hero h1 { animation-delay: 0.08s; }
+.hero-lead { animation-delay: 0.18s; }
+.search--hero { animation-delay: 0.28s; }
+.hero-chips { animation-delay: 0.36s; }
+.hero-stats { animation-delay: 0.44s; }
+.hero-visual { animation-delay: 0.52s; }
+
+/* A slow gold sheen across "confidence". */
+.hero h1 em {
+  background: linear-gradient(100deg, var(--gold-ink) 40%, #f3d27a 50%, var(--gold-ink) 60%) 120% 0 / 250% 100% repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 6s ease-in-out 1.2s infinite;
+}
+
+/* Campus photo in the band slowly zooms while it is on screen. */
+.hero-visual img { animation: hero-drift 30s ease-in-out infinite alternate; }
+
+/* Search results and the phone menu open with a small drop. */
+.search-results:not([hidden]) { animation: pop 0.18s var(--ease); }
+
+/* Professor page: the summary cards and bars fill in once the data arrives. */
+.prof-header { animation: rise 0.6s var(--ease) both; }
+.summary .stat { animation: rise 0.6s var(--ease) both; }
+.summary .stat:nth-child(3) { animation-delay: 0.06s; }
+.summary .stat:nth-child(4) { animation-delay: 0.12s; }
+.summary .stat:nth-child(5) { animation-delay: 0.18s; }
+.summary .stat:nth-child(6) { animation-delay: 0.24s; }
+.dist-bar span, .meter span { transform-origin: left center; animation: grow-x 0.9s var(--ease) 0.2s both; }
+.dist li:nth-child(2) .dist-bar span { animation-delay: 0.24s; }
+.dist li:nth-child(3) .dist-bar span { animation-delay: 0.28s; }
+.dist li:nth-child(4) .dist-bar span { animation-delay: 0.32s; }
+.dist li:nth-child(5) .dist-bar span { animation-delay: 0.36s; }
+.dist li:nth-child(n+6) .dist-bar span { animation-delay: 0.4s; }
+.review.is-new { animation: rise 0.6s var(--ease) both; }
+
+/* Cards, sections and reviews rise into place as they scroll into view (no script needed;
+   browsers without scroll-driven animations simply show everything). */
+@supports (animation-timeline: view()) {
+  .section-head, .school-grid > li, .prof-grid > li, .recent-grid > li, .steps > li, .cta-band,
+  .review-list > li, .dean, .prose > * {
+    animation: rise-scroll linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 45%;
+  }
+  .school-grid > li:nth-child(3n+2), .recent-grid > li:nth-child(3n+2), .steps > li:nth-child(2),
+  .prof-grid > li:nth-child(4n+2) { animation-range: entry 6% entry 52%; }
+  .school-grid > li:nth-child(3n), .recent-grid > li:nth-child(3n), .steps > li:nth-child(3),
+  .prof-grid > li:nth-child(4n+3) { animation-range: entry 12% entry 58%; }
+  .prof-grid > li:nth-child(4n) { animation-range: entry 18% entry 64%; }
+  /* Sideways shelves on phones scroll horizontally; their cards should not wait for it. */
+  @media (max-width: 720px) {
+    .prof-grid--rail > li { animation: rise 0.6s var(--ease) both; }
+  }
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1024px) {
@@ -1302,7 +1425,7 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
   .brand-mark { width: 28px; height: 28px; }
   .brand-name { font-size: 17px; }
 
-  .hero { padding: 44px 0 56px; }
+  .hero { padding: 48px 0 56px; }
   .hero h1 { font-size: 2.75rem; }
   .hero-lead { margin-bottom: 28px; font-size: 17px; }
   .eyebrow { margin-bottom: 20px; }

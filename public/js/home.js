@@ -7,9 +7,28 @@ import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 const grid = document.getElementById('schools-grid');
 const MIN_PUBLIC_REVIEW_COUNT = 25;
 
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+// Numbers count up from zero, so the hero feels alive when the data lands.
+function countUp(el, value) {
+  if (reduceMotion.matches || value < 2) {
+    el.textContent = value.toLocaleString('en-US');
+    return;
+  }
+  const start = performance.now();
+  const duration = 1100;
+  const step = now => {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - (1 - t) ** 3;
+    el.textContent = Math.round(value * eased).toLocaleString('en-US');
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 function setStat(key, value) {
   const el = document.querySelector(`[data-stat="${key}"]`);
-  if (el) el.textContent = value.toLocaleString('en-US');
+  if (el) countUp(el, value);
   const label = document.querySelector(`[data-stat-label="${key}"]`);
   if (label) label.textContent = 'reviews';
 }

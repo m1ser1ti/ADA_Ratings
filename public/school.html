@@ -90,8 +90,8 @@
   </nav>
 
   <main id="main" tabindex="-1">
-    <section class="page-hero" aria-labelledby="school-name">
-      <img id="hero-img" class="page-hero-img" alt="">
+    <section class="page-hero school-art" id="school-hero" data-pattern="grid" aria-labelledby="school-name">
+      <div class="page-hero-mark" id="hero-mark" aria-hidden="true"></div>
       <div class="container">
         <nav class="breadcrumbs" aria-label="Breadcrumb">
           <ol>
@@ -99,7 +99,7 @@
             <li><span id="crumb-school" aria-current="page">School</span></li>
           </ol>
         </nav>
-        <span class="page-hero-kicker" id="school-code">School</span>
+        <span class="page-hero-kicker"><span class="page-hero-icon" id="hero-icon" aria-hidden="true"></span><span id="school-code">School</span></span>
         <h1 id="school-name">School</h1>
         <ul class="page-hero-stats" id="school-stats" hidden>
           <li><strong data-school-stat="professors">—</strong><span>Professors</span></li>
@@ -110,8 +110,6 @@
     </section>
 
     <div class="container">
-      <figure class="dean" id="dean" hidden></figure>
-
       <section class="section" aria-labelledby="faculty-title">
         <div class="section-head">
           <div>

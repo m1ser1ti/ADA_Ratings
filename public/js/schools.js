@@ -1,67 +1,51 @@
-// Presentation data the API does not carry: each school's photo and dean.
-// `photo` is a base path; images exist at -800.webp (cards) and -1600.webp (heroes).
+// Presentation data the API does not carry: each school's visual identity.
+// No photos: every school is drawn with its own deep colour pair, a soft glow, a fine
+// line pattern (see .school-art in style.css) and a small original line icon.
 
 export const SCHOOLS = {
-  SPIA: {
-    name: 'School of Public and International Affairs',
-    photo: '/img/spia',
-    dean: {
-      name: 'Azer Babayev',
-      title: 'Dean, School of Public and International Affairs',
-      image: 'https://www.ada.edu.az/media/2024/12/19/1to1_medium/azer_babayev_1_.jpg',
-      quote: 'For quality teaching and research, the cultural value of education should come before its material or social value. When valued in this way, education will inspire lifelong intellectual curiosity and wonder in students, enabling them to learn and appreciate knowledge as the universal currency of education and, ultimately, as an end in itself.',
-    },
-  },
   SITE: {
     name: 'School of IT and Engineering',
-    photo: '/img/site',
-    dean: {
-      name: 'Abzatdin Adamov',
-      title: 'Dean, School of IT and Engineering',
-      image: 'https://www.ada.edu.az/media/2024/05/31/1to1_medium/abzatdin_adamov.jpg',
-      quote: 'To be the next World changers, engineering students must grasp certain fundamental knowledge in their primary field understanding essential concepts and how they work together. When the next Big Thing comes, it will not be just a buzzword to chase — instead they will understand all technical implications behind and its real value.',
-    },
+    art: { from: '#061a3e', to: '#0f418f', glow: '#4aa3ff', pattern: 'grid' },
+    icon: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/><path d="M10 10h4v4h-4z"/>',
   },
   SB: {
     name: 'School of Business',
-    photo: '/img/sb',
-    dean: {
-      name: 'Huseyn Ismayilov',
-      title: 'Dean, School of Business',
-      image: 'https://www.ada.edu.az/media/2024/05/31/1to1_medium/huseyn_ismayilov.jpg',
-      quote: 'At ADA School of Business, our goal is to equip students with the knowledge and skills required to succeed professionally anywhere in the world.',
-    },
+    art: { from: '#05302c', to: '#0d6156', glow: '#45d3a9', pattern: 'rise' },
+    icon: '<path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/><path d="M15 6h5v5"/>',
+  },
+  SPIA: {
+    name: 'School of Public and International Affairs',
+    art: { from: '#11164a', to: '#2c3594', glow: '#8f9eff', pattern: 'rings' },
+    icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.5 4 5.6 4 9s-1.4 6.5-4 9c-2.6-2.5-4-5.6-4-9s1.4-6.5 4-9z"/>',
   },
   LAW: {
     name: 'School of Law',
-    photo: '/img/spia',
-    dean: {
-      name: 'Rashad Ibadov',
-      title: 'Dean, School of Law',
-      image: 'https://www.ada.edu.az/media/2024/06/07/1to1_medium/rashad_i.jpeg',
-      quote: 'Education offered at ADA University is not only aimed at providing students with those capacities, which will enable them to be masters of their fate and to think critically about any permissible conceptions of the good, but also introducing them to civic virtues, which will lead them to be good citizens.',
-    },
+    art: { from: '#2d0c1c', to: '#6c1f3d', glow: '#ef8aa0', pattern: 'columns' },
+    icon: '<path d="M3 9l9-5 9 5"/><path d="M5 9v9M9.7 9v9M14.3 9v9M19 9v9"/><path d="M3 21h18M4 18h16"/>',
   },
   SAFS: {
     name: 'School of Agricultural and Food Sciences',
-    photo: '/img/safs',
-    dean: {
-      name: 'Matteo Vittuari',
-      title: 'Dean, School of Agricultural and Food Sciences',
-      image: 'https://www.ada.edu.az/media/2025/11/20/1to1_medium/matteo_vittuari-1.jpg',
-      quote: 'ADA University School of Agricultural and Food Sciences embraces a food system lens to agricultural production and food consumption to run research and educate future generations of professionals, entrepreneurs and public officers inspired by the passion for knowledge, technology and innovation.',
-    },
+    art: { from: '#14290d', to: '#3c5f1c', glow: '#cfdd78', pattern: 'contours' },
+    icon: '<path d="M12 21V11"/><path d="M12 11C12 6.5 15.5 3.5 20 3.5c0 4.5-3.5 7.5-8 7.5z"/><path d="M12 14c0-3.6-2.8-6-6.5-6 0 3.6 2.8 6 6.5 6z"/>',
   },
   SDA: {
     name: 'School of Design and Architecture',
-    photo: '/img/sda',
-    dean: {
-      name: 'Silvia Ferraris',
-      title: 'Dean, School of Design & Architecture',
-      image: 'https://www.ada.edu.az/media/2025/07/28/img_0506-1.jpeg',
-      quote: "Design, architecture, and urban planning are at the heart of a country's strategic development. They participate in constructing and valorizing what is and will be. Mixing technology, creativity, science, and vision, they shape the inhabited environment and the quality of life of today and tomorrow.",
-    },
+    art: { from: '#2b1806', to: '#7b4f10', glow: '#f3c65a', pattern: 'iso' },
+    icon: '<path d="M4 20 20 4v16z"/><path d="M12 20v-4M16 20v-8"/><path d="M8.5 15.5h3.5V12"/>',
   },
 };
 
-export const FALLBACK_PHOTO = '/img/campus-alt';
+// Unknown codes still get a calm navy tile.
+export const FALLBACK_ART = { from: '#071633', to: '#123a7a', glow: '#6fb0ff', pattern: 'grid' };
+export const FALLBACK_ICON = '<path d="M3 10l9-6 9 6"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/>';
+
+/** Attributes that paint an element with a school's identity: `<div class="school-art" ${schoolArtAttrs(code)}>`. */
+export function schoolArtAttrs(code) {
+  const art = (SCHOOLS[code] && SCHOOLS[code].art) || FALLBACK_ART;
+  return `data-pattern="${art.pattern}" style="--art-from:${art.from};--art-to:${art.to};--art-glow:${art.glow}"`;
+}
+
+export function schoolIcon(code) {
+  const paths = (SCHOOLS[code] && SCHOOLS[code].icon) || FALLBACK_ICON;
+  return `<svg class="school-art-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
+}

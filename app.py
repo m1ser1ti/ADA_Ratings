@@ -16,22 +16,23 @@ from markupsafe import escape
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import func, inspect, text
+from sqlalchemy import case, func, inspect, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import contains_eager, joinedload
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db
 from models import (
-    BAN_DEVICE, BAN_NETWORK, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Professor, Report, Review, School,
+    BAN_DEVICE, BAN_NETWORK, PROFILE_REQUEST_DISMISSED, PROFILE_REQUEST_DONE, PROFILE_REQUEST_OPEN, REVIEW_AWAITING,
+    REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, ProfileRequest, Professor, Report, Review, School,
 )
 
 log = logging.getLogger(__name__)
 
 MAX_REVIEW_LENGTH = 5000
-# One or two reviews say little, and let a single angry student define a professor.
-MIN_REVIEWS_FOR_AVERAGE = 3
+# A handful of reviews says little, and lets a single angry student define a professor.
+MIN_REVIEWS_FOR_AVERAGE = 5
 # This many reports take a review off the site until a moderator looks at it.
 REPORTS_TO_HIDE = 3
 REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'faculty_request', 'other')
@@ -49,6 +50,11 @@ MAX_TAGS = 3
 TOP_TAGS = 3
 # 'CS 1101', 'cs1101', 'INTL 3010A': 2-5 letters, 3-4 digits, an optional section letter.
 COURSE_CODE = re.compile(r'^([A-Z]{2,5}) ?([0-9]{3,4}[A-Z]?)$', re.ASCII)
+# Removal requests from a professor's page.
+REMOVAL_MESSAGE_MAX = 1000
+REMOVAL_CONTACT_MAX = 200
+EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+PROFILE_REMOVED = "This profile was removed at the professor's request."
 
 custom_bad_words = [
     "блять", "блядь", "пизда", "хуй", "ебать", "сука", "пиздец", "ёбаный",
@@ -57,13 +63,14 @@ custom_bad_words = [
 ]
 profanity.add_censor_words(custom_bad_words)
 
-# Scripts only from this site (no inline scripts); photos come from ada.edu.az.
+# Scripts and images only from this site (no inline scripts); professors are shown with initials,
+# never with photos from ada.edu.az.
 CSP = '; '.join([
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data: https://www.ada.edu.az",
+    "img-src 'self' data:",
     "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -318,7 +325,11 @@ def upgrade_schema():
         if 'active' not in professor_columns:
             log.info('Adding professor.active')
             conn.execute(text('ALTER TABLE professor ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE'))
+        if 'opted_out' not in professor_columns:
+            log.info('Adding professor.opted_out')
+            conn.execute(text('ALTER TABLE professor ADD COLUMN opted_out BOOLEAN NOT NULL DEFAULT FALSE'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_active ON professor (active)'))
+        # The profile_request table is new, so create_all (run just before this) made it whole.
 
 
 def init_db(seed_if_empty=True, sync=True):
@@ -383,16 +394,21 @@ def rating_stats_for(prof_id):
     return (round(float(avg), 1) if avg is not None else None), count
 
 
+def shown_professor():
+    """The filter for professors who appear in public lists, search and the sitemap."""
+    return Professor.active.is_(True) & Professor.opted_out.is_(False)
+
+
 def professor_summary(p, stats):
     avg, count = stats.get(p.id, (None, 0))
     if count < MIN_REVIEWS_FOR_AVERAGE:
         avg = None
+    # No image_url: photos stay on ada.edu.az and the site shows initials instead.
     return {
         'id': p.id,
         'name': p.name,
         'title': p.title,
         'specialization': p.specialization,
-        'image_url': p.image_url,
         'profile_url': p.profile_url,
         'school': p.school.code,
         'url': professor_path(p),
@@ -599,7 +615,7 @@ def create_app(config=None):
             return render_page(app, 'school.html', meta, status=404)
         if code != school.code:
             return redirect(school_path(school.code), 301)
-        count = Professor.query.filter_by(school_id=school.id, active=True).count()
+        count = Professor.query.filter(Professor.school_id == school.id, shown_professor()).count()
         meta = meta_tags(
             f'{school.name} professors · ADA Ratings',
             f'Ratings and anonymous student reviews of {count} professors at the ADA University {school.name}.',
@@ -614,6 +630,11 @@ def create_app(config=None):
         if not p:
             meta = meta_tags('Professor not found · ADA Ratings', DEFAULT_DESCRIPTION, request.path, noindex=True)
             return render_page(app, 'professor.html', meta, status=404)
+        if p.opted_out:
+            # Before the slug redirect, so not even the name in the address survives. The page
+            # script reads the same 410 from the API and says why the profile is gone.
+            meta = meta_tags('Profile removed · ADA Ratings', PROFILE_REMOVED, request.path, noindex=True)
+            return render_page(app, 'professor.html', meta, status=410)
         if request.path != professor_path(p):
             return redirect(professor_path(p), 301)
         avg, count = rating_stats_for(p.id)
@@ -625,7 +646,7 @@ def create_app(config=None):
             rating = 'No reviews yet — be the first to rate.'
         role = ', '.join(part for part in (p.title, p.school.name) if part)
         meta = meta_tags(f'{p.name} · ADA Ratings', f'{p.name}, {role} at ADA University. {rating}',
-                         professor_path(p), image=p.image_url)
+                         professor_path(p))
         return render_page(app, 'professor.html', meta)
 
     @app.route('/index.html')
@@ -637,7 +658,7 @@ def create_app(config=None):
     def old_professor_link():
         prof_id = request.args.get('id', type=int)
         p = db.session.get(Professor, prof_id) if prof_id else None
-        return redirect(professor_path(p) if p else '/', 301)
+        return redirect(professor_path(p) if p and not p.opted_out else '/', 301)
 
     @app.route('/school.html')
     def old_school_link():
@@ -661,7 +682,7 @@ def create_app(config=None):
         base = site_url()
         urls = [f'<url><loc>{base}/</loc></url>']
         urls += [f'<url><loc>{base}{school_path(s.code)}</loc></url>' for s in School.query.order_by(School.id)]
-        for p in Professor.query.filter_by(active=True).order_by(Professor.id):
+        for p in Professor.query.filter(shown_professor()).order_by(Professor.id):
             stamp = latest.get(p.id)
             lastmod = f'<lastmod>{stamp.date().isoformat()}</lastmod>' if stamp else ''
             urls.append(f'<url><loc>{escape(base + professor_path(p))}</loc>{lastmod}</url>')
@@ -673,14 +694,14 @@ def create_app(config=None):
     def get_schools():
         counts = dict(
             db.session.query(Professor.school_id, func.count(Professor.id))
-            .filter(Professor.active.is_(True))
+            .filter(shown_professor())
             .group_by(Professor.school_id)
             .all()
         )
         reviews = dict(
             db.session.query(Professor.school_id, func.count(Review.id))
             .join(Review, Review.professor_id == Professor.id)
-            .filter(Review.status == REVIEW_PUBLISHED)
+            .filter(Review.status == REVIEW_PUBLISHED, Professor.opted_out.is_(False))
             .group_by(Professor.school_id)
             .all()
         )
@@ -697,7 +718,7 @@ def create_app(config=None):
     def get_professors():
         query = (
             Professor.query.options(joinedload(Professor.school))
-            .filter(Professor.active.is_(True))
+            .filter(shown_professor())
             .order_by(Professor.name)
         )
         school_code = request.args.get('school')
@@ -714,6 +735,8 @@ def create_app(config=None):
     @app.route('/api/professors/<int:prof_id>', methods=['GET'])
     def get_professor(prof_id):
         p = db.get_or_404(Professor, prof_id)
+        if p.opted_out:
+            return jsonify({'error': PROFILE_REMOVED, 'code': 'profile_removed'}), 410
         reviews = (
             Review.query.filter_by(professor_id=p.id, status=REVIEW_PUBLISHED)
             .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
@@ -780,15 +803,21 @@ def create_app(config=None):
         professor = db.session.get(Professor, prof_id)
         if not professor:
             return jsonify({'error': 'Professor not found'}), 404
+        if professor.opted_out:
+            return jsonify({'error': PROFILE_REMOVED, 'code': 'profile_removed'}), 410
 
-        review = Review(professor_id=professor.id, text=review_text, rating=rating,
+        # Written words can defame, so they wait for a moderator; a bare rating goes up at once.
+        status = REVIEW_AWAITING if review_text else REVIEW_PUBLISHED
+        review = Review(professor_id=professor.id, text=review_text, rating=rating, status=status,
                         client_hash=device_hash(), network=network_hash(), **details)
         db.session.add(review)
         db.session.commit()
 
         return jsonify({
             'success': True,
-            'message': 'Review added successfully',
+            'status': status,
+            'message': 'Review sent: it appears after a quick check.' if status == REVIEW_AWAITING
+            else 'Review published.',
             'review': review_json(review),
         }), 201
 
@@ -796,8 +825,10 @@ def create_app(config=None):
     def recent_reviews():
         limit = min(max(request.args.get('limit', 6, type=int), 1), 20)
         reviews = (
-            Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
-            .filter(Review.status == REVIEW_PUBLISHED, Review.text != '')  # rating-only reviews have nothing to quote
+            Review.query.join(Review.professor)
+            .options(contains_eager(Review.professor).joinedload(Professor.school))
+            .filter(Review.status == REVIEW_PUBLISHED, Review.text != '',  # rating-only reviews have nothing to quote
+                    Professor.opted_out.is_(False))
             .order_by(Review.created_at.desc().nulls_last(), Review.id.desc())
             .limit(limit)
             .all()
@@ -824,7 +855,7 @@ def create_app(config=None):
         if reason not in REPORT_REASONS:
             return jsonify({'error': 'Choose a reason for the report'}), 400
         review = db.session.get(Review, review_id)
-        if not review or review.status != REVIEW_PUBLISHED:
+        if not review or review.status != REVIEW_PUBLISHED or review.professor.opted_out:
             return jsonify({'error': 'Review not found'}), 404
         db.session.add(Report(review_id=review.id, reason=reason, network=network_hash()))
         # In SQL, so two reports arriving together both count.
@@ -841,6 +872,39 @@ def create_app(config=None):
             review.status = REVIEW_PENDING
             log.info('Review %s hidden for moderation after reports from %s networks', review.id, networks)
         db.session.commit()
+        return jsonify({'success': True}), 202
+
+    @app.route('/api/professors/<int:prof_id>/removal-request', methods=['POST'])
+    # Per network, and only stored requests count. No rules cookie: a professor asking to be taken
+    # off the site is not a student and never had to accept the review rules.
+    @limiter.limit('5 per day', deduct_when=created)
+    def request_profile_removal(prof_id):
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Request body must be a JSON object'}), 400
+        message = data.get('message')
+        if not isinstance(message, str) or not (message := normalize_text(message)):
+            return jsonify({'error': 'Please write a short message.'}), 400
+        if len(message) > REMOVAL_MESSAGE_MAX:
+            return jsonify({'error': f'Message is too long (max {REMOVAL_MESSAGE_MAX} characters).'}), 400
+        contact = data.get('contact')
+        if contact is None:
+            contact = ''
+        if not isinstance(contact, str):
+            return jsonify({'error': 'Email must be text.'}), 400
+        contact = normalize_text(contact)
+        if len(contact) > REMOVAL_CONTACT_MAX:
+            return jsonify({'error': f'Email is too long (max {REMOVAL_CONTACT_MAX} characters).'}), 400
+        if contact and not EMAIL.match(contact):
+            return jsonify({'error': 'Enter a valid email address, or leave it empty.'}), 400
+        professor = db.session.get(Professor, prof_id)
+        if not professor:
+            return jsonify({'error': 'Professor not found'}), 404
+        if professor.opted_out:
+            return jsonify({'error': PROFILE_REMOVED, 'code': 'profile_removed'}), 410
+        db.session.add(ProfileRequest(professor_id=professor.id, message=message, contact=contact or None))
+        db.session.commit()
+        log.info('Profile removal requested for professor %s', professor.id)
         return jsonify({'success': True}), 202
 
     def bearer_matches(*names):
@@ -885,9 +949,18 @@ def create_app(config=None):
     @limiter.limit('60 per minute')
     def admin_reviews():
         require_admin()
+        # New written reviews nobody has approved yet: the people waiting longest come first.
+        awaiting = (
+            Review.query.options(joinedload(Review.professor), joinedload(Review.reports))
+            .filter(Review.status == REVIEW_AWAITING)
+            .order_by(Review.id)
+            .limit(200)
+            .all()
+        )
         flagged = (
             Review.query.options(joinedload(Review.professor), joinedload(Review.reports))
             .filter((Review.status != REVIEW_PUBLISHED) | (Review.report_count > 0))
+            .filter(Review.status != REVIEW_AWAITING)
             .order_by(Review.report_count.desc(), Review.id.desc())
             .limit(200)
             .all()
@@ -899,7 +972,11 @@ def create_app(config=None):
             .limit(50)
             .all()
         )
-        return jsonify({'flagged': [admin_review(r) for r in flagged], 'recent': [admin_review(r) for r in recent]})
+        return jsonify({
+            'awaiting': [admin_review(r) for r in awaiting],
+            'flagged': [admin_review(r) for r in flagged],
+            'recent': [admin_review(r) for r in recent],
+        })
 
     @app.route('/api/admin/reviews/<int:review_id>', methods=['POST'])
     @limiter.limit('60 per minute')
@@ -908,6 +985,9 @@ def create_app(config=None):
         data = request.get_json(silent=True)
         action = data.get('action') if isinstance(data, dict) else None
         review = db.session.get(Review, review_id) or abort(404)
+        if action in ('publish', 'hide', 'ban') and review.ai_checked_at is None:
+            # A person decided: the AI moderator must not take the review up again and overrule them.
+            review.ai_checked_at = datetime.now(timezone.utc)
         if action == 'publish':
             review.status = REVIEW_PUBLISHED
             review.report_count = 0  # past reports were looked at; only new ones count again
@@ -918,6 +998,7 @@ def create_app(config=None):
         elif action == 'ban':
             review.status = REVIEW_HIDDEN
             if ban_review_author(review, 'Blocked by a moderator', 'admin') is None:
+                db.session.rollback()  # a refused action changes nothing
                 return jsonify({'error': 'This review was written before browsers were recorded; it cannot be traced.'}), 400
         else:
             return jsonify({'error': 'Unknown action'}), 400
@@ -932,10 +1013,13 @@ def create_app(config=None):
     def moderation_queue():
         require_moderator()
         limit = min(max(request.args.get('limit', 10, type=int), 1), 50)
+        # New reviews waiting to go up first, oldest first; then reviews published before
+        # pre-moderation that nobody has read yet.
         reviews = (
             Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
-            .filter(Review.status == REVIEW_PUBLISHED, Review.ai_checked_at.is_(None), Review.text != '')
-            .order_by(Review.id)
+            .filter(Review.status.in_((REVIEW_AWAITING, REVIEW_PUBLISHED)), Review.ai_checked_at.is_(None),
+                    Review.text != '')
+            .order_by(case((Review.status == REVIEW_AWAITING, 0), else_=1), Review.id)
             .limit(limit)
             .all()
         )
@@ -953,13 +1037,19 @@ def create_app(config=None):
             return jsonify({'error': 'verdict must be "ok" or "remove"'}), 400
         reason = str(data.get('reason') or '')[:AI_REASON_MAX]
         review = db.session.get(Review, review_id) or abort(404)
+        if review.ai_checked_at is not None and review.ai_verdict is None:
+            # A person decided while the AI was still reading it: theirs is the decision that stands.
+            return jsonify({'success': True, 'banned': False})
         review.ai_verdict = data['verdict']
         review.ai_reason = reason or None
         review.ai_checked_at = datetime.now(timezone.utc)
         banned = False
-        if data['verdict'] == 'remove':
+        if data['verdict'] == 'ok':
+            if review.status == REVIEW_AWAITING:
+                review.status = REVIEW_PUBLISHED
+        else:
             # Hidden, not deleted: a person can restore it from /admin.html if the AI was wrong.
-            if review.status == REVIEW_PUBLISHED:
+            if review.status in (REVIEW_AWAITING, REVIEW_PUBLISHED):
                 review.status = REVIEW_HIDDEN
             if data.get('ban') is True:
                 banned = ban_review_author(review, f'AI: {reason}', 'ai') is not None
@@ -985,6 +1075,66 @@ def create_app(config=None):
         db.session.delete(ban)
         db.session.commit()
         log.info('Moderator lifted ban %s', ban_id)
+        return jsonify({'success': True})
+
+    # ---------- Admin: profile removal requests ----------
+
+    def admin_professor(p):
+        return {'id': p.id, 'name': p.name, 'school': p.school.code, 'opted_out': p.opted_out}
+
+    @app.route('/api/admin/profile-requests', methods=['GET'])
+    @limiter.limit('60 per minute')
+    def admin_profile_requests():
+        require_admin()
+        found = (
+            ProfileRequest.query.options(joinedload(ProfileRequest.professor).joinedload(Professor.school))
+            .order_by(case((ProfileRequest.status == PROFILE_REQUEST_OPEN, 0), else_=1), ProfileRequest.id.desc())
+            .limit(200)
+            .all()
+        )
+        removed = (
+            Professor.query.options(joinedload(Professor.school))
+            .filter(Professor.opted_out.is_(True))
+            .order_by(Professor.name)
+            .all()
+        )
+        return jsonify({
+            'requests': [{
+                'id': r.id, 'message': r.message, 'contact': r.contact, 'status': r.status,
+                'created_at': iso(r.created_at), 'professor': admin_professor(r.professor),
+            } for r in found],
+            'removed': [admin_professor(p) for p in removed],
+        })
+
+    @app.route('/api/admin/profile-requests/<int:request_id>', methods=['POST'])
+    @limiter.limit('60 per minute')
+    def admin_profile_request_action(request_id):
+        require_admin()
+        data = request.get_json(silent=True)
+        action = data.get('action') if isinstance(data, dict) else None
+        found = db.session.get(ProfileRequest, request_id) or abort(404)
+        if action == 'remove_profile':
+            found.professor.opted_out = True
+            # One removal answers every open request about the same profile.
+            ProfileRequest.query.filter_by(professor_id=found.professor_id, status=PROFILE_REQUEST_OPEN) \
+                .update({ProfileRequest.status: PROFILE_REQUEST_DONE})
+            found.status = PROFILE_REQUEST_DONE
+        elif action == 'dismiss':
+            found.status = PROFILE_REQUEST_DISMISSED
+        else:
+            return jsonify({'error': 'Unknown action'}), 400
+        db.session.commit()
+        log.info('Moderator %s on profile request %s (professor %s)', action, request_id, found.professor_id)
+        return jsonify({'success': True})
+
+    @app.route('/api/admin/professors/<int:prof_id>/restore', methods=['POST'])
+    @limiter.limit('60 per minute')
+    def admin_restore_professor(prof_id):
+        require_admin()
+        professor = db.session.get(Professor, prof_id) or abort(404)
+        professor.opted_out = False
+        db.session.commit()
+        log.info('Moderator restored the profile of professor %s', prof_id)
         return jsonify({'success': True})
 
     return app

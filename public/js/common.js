@@ -82,21 +82,54 @@ export function forgetProfessors() {
   try { sessionStorage.removeItem(PROFESSORS_KEY); } catch { /* ignore */ }
 }
 
-// Local initials avatar, so a missing photo needs no third-party service.
+// Professors are shown with initials, never photos: faces are personal data and the
+// university's pictures are not ours to reuse. Deep gradient pairs keep white initials
+// readable and sit well on both the light and the dark theme.
+const AVATAR_TONES = [
+  ['#0a1f44', '#2563c9'], // navy → blue
+  ['#073b4c', '#1f8fb0'], // ocean
+  ['#0b4a43', '#24896b'], // teal → green
+  ['#3a1d4d', '#7a4cb3'], // plum → violet
+  ['#6b4006', '#b5821f'], // amber → gold
+  ['#4d1428', '#a8435c'], // wine → rose
+  ['#1d2737', '#4f6079'], // slate
+  ['#221f5c', '#5251c4'], // indigo
+];
+
+// Same name, same colour, on every page and every visit.
+function nameHash(text) {
+  let hash = 2166136261; // FNV-1a
+  for (const ch of text) {
+    hash ^= ch.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function initialsOf(name) {
+  const parts = String(name || '').split(/\s+/)
+    .map(part => (part.match(/\p{L}/u) || [''])[0])
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  const picked = parts.length > 1 ? [parts[0], parts[parts.length - 1]] : parts;
+  return picked.join('').toLocaleUpperCase('en-US');
+}
+
 export function initialsAvatar(name) {
-  const initials = String(name || '?')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(part => part[0].toUpperCase())
-    .join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#0b2a5b"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Georgia,serif" font-size="46" fill="#e0bb4a">${escapeHtml(initials)}</text></svg>`;
+  const initials = initialsOf(name);
+  const [from, to] = AVATAR_TONES[nameHash(String(name || '').trim().toLowerCase()) % AVATAR_TONES.length];
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">'
+    + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient>`
+    + '<radialGradient id="s" cx="0.3" cy="0.18" r="0.75"><stop offset="0" stop-color="#fff" stop-opacity="0.22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
+    + '<rect width="120" height="120" fill="url(#g)"/><rect width="120" height="120" fill="url(#s)"/>'
+    + `<text x="60" y="60" dy="0.35em" text-anchor="middle" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="${initials.length > 1 ? 44 : 50}" font-weight="600" letter-spacing="-1" fill="#ffffff">${escapeHtml(initials)}</text>`
+    + '</svg>';
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+// `image_url` from the API is deliberately ignored: no third-party photos are ever loaded.
 export function avatarImg(p, className = 'avatar', alt = '') {
-  const src = safeUrl(p.image_url) || initialsAvatar(p.name);
-  return `<img class="${className}" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" data-fallback-name="${escapeHtml(p.name)}">`;
+  return `<img class="${className}" src="${escapeHtml(initialsAvatar(p.name))}" alt="${escapeHtml(alt)}" loading="lazy" data-fallback-name="${escapeHtml(p.name)}">`;
 }
 
 // One listener replaces inline onerror handlers (and keeps a strict CSP possible).
@@ -116,7 +149,7 @@ export function ratingClass(rating) {
 }
 
 // Must match MIN_REVIEWS_FOR_AVERAGE in app.py: below it the API sends no average.
-export const MIN_REVIEWS_FOR_AVERAGE = 3;
+export const MIN_REVIEWS_FOR_AVERAGE = 5;
 
 export function ratingBadge(rating, size = '') {
   if (rating == null) {
@@ -476,10 +509,17 @@ export function openRulesGate() {
           <span>I have read and agree to the <a href="/rules.html" target="_blank" rel="noopener">review rules</a> and the <a href="/terms.html" target="_blank" rel="noopener">terms of use</a>.</span>
         </label>
         <button type="submit" class="btn btn-primary btn-block">Agree and continue</button>
+        <button type="button" class="link-btn rules-gate-faculty" data-faculty>I am a faculty member — just looking at my profile</button>
       </form>`;
     document.body.append(dialog);
     // Escape must not skip the agreement.
     dialog.addEventListener('cancel', event => event.preventDefault());
+    // Faculty may view their page (and ask for removal) without accepting the student rules;
+    // the server still refuses reviews and reports until the rules are accepted.
+    dialog.querySelector('[data-faculty]').addEventListener('click', () => {
+      document.documentElement.classList.remove('rules-open');
+      dialog.close();
+    });
     dialog.querySelector('form').addEventListener('submit', () => {
       rememberRules();
       document.documentElement.classList.remove('rules-open');

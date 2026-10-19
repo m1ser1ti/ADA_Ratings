@@ -2,7 +2,7 @@ import {
   allProfessors, api, emptyState, errorState, escapeHtml, focusHeroSearch, formatDate, plural, professorCard, ratingBadge,
   schoolUrl, skeletons,
 } from './common.js';
-import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
+import { schoolArtAttrs, schoolIcon } from './schools.js';
 
 const grid = document.getElementById('schools-grid');
 const MIN_PUBLIC_REVIEW_COUNT = 25;
@@ -42,16 +42,14 @@ async function loadSchools() {
       grid.innerHTML = emptyState('No schools yet', 'The database has not been seeded.');
       return;
     }
-    grid.innerHTML = schools.map(s => {
-      const extra = SCHOOLS[s.code] || {};
-      return `
+    grid.innerHTML = schools.map(s => `
         <li>
           <a class="school-card" href="${schoolUrl(s.code)}">
-            <div class="school-card-media">
-              <img src="${escapeHtml(extra.photo || FALLBACK_PHOTO)}-800.webp" alt="" width="800" height="500" loading="lazy" decoding="async">
+            <div class="school-card-media school-art" ${schoolArtAttrs(s.code)}>
+              ${schoolIcon(s.code)}
+              <span class="school-art-code">${escapeHtml(s.code)}</span>
             </div>
             <div class="school-card-body">
-              <span class="school-code">${escapeHtml(s.code)}</span>
               <h3>${escapeHtml(s.name)}</h3>
               <p class="school-meta">
                 <span>${plural(s.professor_count, 'professor')} · ${plural(s.review_count, 'review')}</span>
@@ -59,8 +57,7 @@ async function loadSchools() {
               </p>
             </div>
           </a>
-        </li>`;
-    }).join('');
+        </li>`).join('');
 
     setStat('schools', schools.length);
     setStat('professors', schools.reduce((sum, s) => sum + s.professor_count, 0));

@@ -5,7 +5,9 @@ import pytest
 
 from app import RULES_COOKIE, RULES_VERSION
 from extensions import db
-from models import BAN_DEVICE, BAN_NETWORK, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Review
+from models import (
+    BAN_DEVICE, BAN_NETWORK, REVIEW_AWAITING, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Review,
+)
 
 GOOD_TEXT = 'Clear lectures and fair grading.'
 # A script that keeps no cookies still has to send the rules cookie it read off the site.
@@ -36,6 +38,13 @@ def post_review(client, headers=None, **overrides):
     return client.post('/api/reviews', json=body, headers=headers)
 
 
+def approve_all(app):
+    """What a moderator does: every written review waiting for a check goes up."""
+    with app.app_context():
+        Review.query.filter_by(status=REVIEW_AWAITING).update({'status': REVIEW_PUBLISHED})
+        db.session.commit()
+
+
 def test_schools_list_counts_professors(client):
     schools = client.get('/api/schools').get_json()
     assert schools == [{
@@ -56,6 +65,7 @@ def test_review_round_trip_updates_average_and_distribution(app, client, prof_id
     res = post_review(client, professor_id=prof_id, rating=9)
     assert res.status_code == 201
     assert res.get_json()['review']['created_at'] is not None
+    approve_all(app)
 
     prof = client.get(f'/api/professors/{prof_id}').get_json()
     assert prof['avg_rating'] is None, 'one review is too few for a public average'
@@ -63,8 +73,11 @@ def test_review_round_trip_updates_average_and_distribution(app, client, prof_id
     assert prof['distribution']['9'] == 1
     assert prof['reviews'][0]['text'] == GOOD_TEXT
 
-    for rating in (7, 8):
+    for rating in (7, 8, 8):
         assert post_review(new_browser(app), professor_id=prof_id, rating=rating).status_code == 201
+    approve_all(app)
+    assert client.get(f'/api/professors/{prof_id}').get_json()['avg_rating'] is None, 'four is still too few'
+    assert post_review(new_browser(app), professor_id=prof_id, rating=8, text='').status_code == 201
     prof = client.get(f'/api/professors/{prof_id}').get_json()
     assert prof['avg_rating'] == 8.0
     listed = {p['id']: p for p in client.get('/api/professors').get_json()}
@@ -106,6 +119,7 @@ def test_written_review_is_optional(client, prof_id, text):
 def test_rating_only_review_counts_but_stays_out_of_the_feed(app, client, prof_id):
     post_review(client, professor_id=prof_id, text=None)
     post_review(new_browser(app), professor_id=prof_id, text='Clear lectures and fair exams.')
+    approve_all(app)
     prof = client.get(f'/api/professors/{prof_id}').get_json()
     assert prof['review_count'] == 2
     assert [r['text'] for r in client.get('/api/reviews/recent').get_json()] == ['Clear lectures and fair exams.']
@@ -233,9 +247,9 @@ def test_average_is_rounded_to_one_decimal(client, app, prof_id):
     from extensions import db
     from models import Review
     with app.app_context():
-        db.session.add_all([Review(professor_id=prof_id, rating=r, text='fine course overall') for r in (7, 8, 8)])
+        db.session.add_all([Review(professor_id=prof_id, rating=r, text='fine course overall') for r in (7, 8, 8, 8, 8)])
         db.session.commit()
-    assert client.get(f'/api/professors/{prof_id}').get_json()['avg_rating'] == 7.7
+    assert client.get(f'/api/professors/{prof_id}').get_json()['avg_rating'] == 7.8
 
 
 def test_database_errors_return_json(client, app, monkeypatch):
@@ -330,7 +344,10 @@ def report(client, review_id, reason='personal_attack'):
 
 
 def published_review(client, prof_id):
-    return post_review(client, professor_id=prof_id).get_json()['review']['id']
+    """A written review that a moderator has approved."""
+    review_id = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    approve_all(client.application)
+    return review_id
 
 
 def test_report_needs_a_known_reason(client, prof_id):
@@ -506,6 +523,7 @@ def test_recent_reviews_feed(app, client, prof_id):
     long_text = 'Great course. ' * 40
     post_review(client, professor_id=prof_id, text='First review of the course.')
     post_review(new_browser(app), professor_id=prof_id, text=long_text)
+    approve_all(app)
     feed = client.get('/api/reviews/recent').get_json()
     assert [r['text'][:12] for r in feed] == ['Great course', 'First review']
     assert feed[0]['text'].endswith('…') and len(feed[0]['text']) <= 241
@@ -563,10 +581,11 @@ def test_index_html_redirects_home(client):
 
 # ---------- Course, difficulty, would-take-again and tags ----------
 
-def test_review_details_round_trip(client, prof_id):
+def test_review_details_round_trip(app, client, prof_id):
     res = post_review(client, professor_id=prof_id, course_code='  cs1101 ', difficulty=4,
                       would_take_again=True, tags=['fair_exams', 'clear_lectures', 'fair_exams'])
     assert res.status_code == 201
+    approve_all(app)
     posted = res.get_json()['review']
     assert (posted['course_code'], posted['difficulty'], posted['would_take_again'], posted['tags']) == \
         ('CS 1101', 4, True, ['clear_lectures', 'fair_exams'])
@@ -614,29 +633,37 @@ def test_bad_review_details_rejected(client, prof_id, field, value, message):
     assert res.get_json() == {'error': message}
 
 
-def test_detail_aggregates_wait_for_three_answers(app, client, prof_id):
-    post_review(client, professor_id=prof_id, difficulty=2, would_take_again=True, tags=['caring', 'fair_exams'])
-    post_review(new_browser(app), professor_id=prof_id, difficulty=3, would_take_again=False, tags=['caring'])
+def test_detail_aggregates_wait_for_five_answers(app, client, prof_id):
+    answers = [
+        (2, True, ['caring', 'fair_exams']), (3, False, ['caring']), (4, True, ['clear_lectures']),
+        (2, True, ['fair_exams']),
+    ]
+    for browser, (difficulty, again, tags) in zip([client] + [new_browser(app) for _ in range(3)], answers):
+        post_review(browser, professor_id=prof_id, text='', difficulty=difficulty, would_take_again=again, tags=tags)
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert (prof['avg_difficulty'], prof['would_take_again_pct'], prof['top_tags']) == (None, None, [])
+    assert prof['review_count'] == 4
+    assert (prof['avg_rating'], prof['avg_difficulty'], prof['would_take_again_pct'], prof['top_tags']) == \
+        (None, None, None, [])
 
-    post_review(new_browser(app), professor_id=prof_id, difficulty=5, would_take_again=True,
+    post_review(new_browser(app), professor_id=prof_id, text='', difficulty=5, would_take_again=True,
                 tags=['tough_grader', 'fair_exams', 'lecture_heavy'])
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert prof['avg_difficulty'] == 3.3
-    assert prof['would_take_again_pct'] == 67
+    assert prof['avg_rating'] == 8.0
+    assert prof['avg_difficulty'] == 3.2
+    assert prof['would_take_again_pct'] == 80
     # Ties keep the fixed tag order.
     assert prof['top_tags'] == [
-        {'tag': 'fair_exams', 'count': 2}, {'tag': 'caring', 'count': 2}, {'tag': 'tough_grader', 'count': 1},
+        {'tag': 'fair_exams', 'count': 3}, {'tag': 'caring', 'count': 2}, {'tag': 'clear_lectures', 'count': 1},
     ]
 
 
 def test_aggregates_count_only_reviews_that_answered(app, client, prof_id):
     post_review(client, professor_id=prof_id, difficulty=4)
-    for _ in range(2):
+    for _ in range(4):
         post_review(new_browser(app), professor_id=prof_id)
+    approve_all(app)
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert prof['avg_rating'] is not None, 'three reviews: the rating average shows'
+    assert prof['avg_rating'] is not None, 'five reviews: the rating average shows'
     assert prof['avg_difficulty'] is None, 'but only one of them rated difficulty'
     assert prof['would_take_again_pct'] is None
     assert prof['top_tags'] == []
@@ -648,24 +675,24 @@ def test_hidden_reviews_do_not_count_toward_aggregates(app, client, prof_id):
                     tags=['tough_grader']).get_json()['review']['id']
         for b in (client, new_browser(app), new_browser(app))
     ]
-    post_review(new_browser(app), professor_id=prof_id, course_code='MATH 2201', difficulty=1,
-                would_take_again=True, tags=['caring'])
+    for _ in range(3):
+        post_review(new_browser(app), professor_id=prof_id, course_code='MATH 2201', difficulty=1,
+                    would_take_again=True, tags=['caring'])
+    approve_all(app)
     with app.app_context():
-        from extensions import db
-        from models import REVIEW_HIDDEN, REVIEW_PENDING, Review
         Review.query.filter_by(id=ids[0]).update({'status': REVIEW_HIDDEN})
         Review.query.filter_by(id=ids[1]).update({'status': REVIEW_PENDING})
         db.session.commit()
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert prof['review_count'] == 2
+    assert prof['review_count'] == 4
     assert (prof['avg_difficulty'], prof['would_take_again_pct'], prof['top_tags']) == (None, None, [])
     assert prof['courses'] == ['CS 1101', 'MATH 2201']
 
-    post_review(new_browser(app), professor_id=prof_id, difficulty=3, would_take_again=True, tags=['caring'])
+    post_review(new_browser(app), professor_id=prof_id, text='', difficulty=3, would_take_again=True, tags=['caring'])
     prof = client.get(f'/api/professors/{prof_id}').get_json()
-    assert prof['avg_difficulty'] == 3.0  # (5 + 1 + 3) / 3, the hidden 5s left out
-    assert prof['would_take_again_pct'] == 67
-    assert prof['top_tags'] == [{'tag': 'caring', 'count': 2}, {'tag': 'tough_grader', 'count': 1}]
+    assert prof['avg_difficulty'] == 2.2  # (5 + 1 + 1 + 1 + 3) / 5, the hidden 5s left out
+    assert prof['would_take_again_pct'] == 80
+    assert prof['top_tags'] == [{'tag': 'caring', 'count': 4}, {'tag': 'tough_grader', 'count': 1}]
 
 
 def test_legacy_reviews_table_gains_detail_columns(tmp_path):
@@ -698,6 +725,7 @@ def test_legacy_reviews_table_gains_detail_columns(tmp_path):
     browser = new_browser(old)
     assert post_review(browser, professor_id=1, course_code='CS 1101', difficulty=2,
                        would_take_again=False, tags=['caring']).status_code == 201
+    approve_all(old)
     reviews = browser.get('/api/professors/1').get_json()['reviews']
     assert [(r['course_code'], r['would_take_again']) for r in reviews] == [('CS 1101', False), (None, None)]
     with old.app_context():
@@ -738,6 +766,7 @@ def test_hidden_professor_keeps_page_and_reviews(app, client):
     with app.app_context():
         turing = Professor.query.filter_by(name='Alan Turing').one().id
     assert post_review(client, professor_id=turing).status_code == 201
+    approve_all(app)
     with app.app_context():
         sync_faculty([faculty_entry('Ada Lovelace')])
     detail = client.get(f'/api/professors/{turing}').get_json()
@@ -893,8 +922,9 @@ def test_reviews_store_one_way_codes_of_browser_and_network(app, prof_id):
                           hashlib.sha256(f'device:{token}'.encode()).hexdigest()[:32])
 
 
-def test_codes_never_reach_the_public_api(client, prof_id):
+def test_codes_never_reach_the_public_api(app, client, prof_id):
     posted = post_review(client, professor_id=prof_id).get_json()['review']
+    approve_all(app)
     listed = client.get(f'/api/professors/{prof_id}').get_json()['reviews'][0]
     for review in (posted, listed):
         assert 'client_hash' not in review and 'network' not in review
@@ -1171,7 +1201,8 @@ def test_admin_ban_on_an_untraceable_review_is_refused(app, client, prof_id, mod
     review_id = post_review(script, headers=RULES_ACCEPTED, professor_id=prof_id).get_json()['review']['id']
     res = client.post(f'/api/admin/reviews/{review_id}', json={'action': 'ban'}, headers=ADMIN)
     assert res.status_code == 400
-    assert stored_review(app, review_id).status == REVIEW_PUBLISHED, 'a refused action changes nothing'
+    review = stored_review(app, review_id)
+    assert (review.status, review.ai_checked_at) == (REVIEW_AWAITING, None), 'a refused action changes nothing'
     assert all_bans(app) == []
 
 
@@ -1184,3 +1215,372 @@ def test_admin_sees_the_ai_verdict(app, client, prof_id, moderation):
     assert [(r['id'], r['ai_verdict'], r['ai_reason']) for r in listing['flagged']] == \
         [(removed, 'remove', 'Personal attack')]
     assert [(r['id'], r['ai_verdict'], r['ai_reason']) for r in listing['recent']] == [(kept, 'ok', None)]
+
+
+# ---------- Pre-moderation of written reviews ----------
+
+def public_texts(client, prof_id):
+    return [r['text'] for r in client.get(f'/api/professors/{prof_id}').get_json()['reviews']]
+
+
+def test_written_review_waits_for_a_moderator(app, client, prof_id):
+    res = post_review(client, professor_id=prof_id, rating=9)
+    assert res.status_code == 201
+    body = res.get_json()
+    assert body['status'] == 'awaiting'
+    assert stored_review(app, body['review']['id']).status == REVIEW_AWAITING
+    prof = client.get(f'/api/professors/{prof_id}').get_json()
+    assert (prof['reviews'], prof['review_count'], prof['distribution']['9']) == ([], 0, 0)
+
+
+def test_rating_only_review_is_published_at_once(app, client, prof_id):
+    res = post_review(client, professor_id=prof_id, text='   ')
+    assert res.get_json()['status'] == 'published'
+    assert stored_review(app, res.get_json()['review']['id']).status == REVIEW_PUBLISHED
+    assert client.get(f'/api/professors/{prof_id}').get_json()['review_count'] == 1
+
+
+def test_awaiting_and_hidden_reviews_never_reach_public_endpoints(app, client, prof_id):
+    with app.app_context():
+        db.session.add_all([
+            Review(professor_id=prof_id, rating=2, text='secret awaiting text', status=REVIEW_AWAITING),
+            Review(professor_id=prof_id, rating=2, text='secret hidden text', status=REVIEW_HIDDEN),
+            Review(professor_id=prof_id, rating=2, text='secret pending text', status=REVIEW_PENDING),
+        ])
+        db.session.commit()
+        hidden_ids = [r.id for r in Review.query.all()]
+    pages = [
+        client.get(f'/api/professors/{prof_id}'), client.get('/api/professors'), client.get('/api/schools'),
+        client.get('/api/reviews/recent'), client.get('/sitemap.xml'), client.get(f'/professor/{prof_id}-ada-lovelace'),
+    ]
+    for res in pages:
+        assert 'secret' not in res.get_data(as_text=True), res.request.path
+    assert client.get('/api/schools').get_json()[0]['review_count'] == 0
+    assert '<lastmod>' not in client.get('/sitemap.xml').get_data(as_text=True)
+    assert 'No reviews yet' in pages[-1].get_data(as_text=True)
+    for review_id in hidden_ids:
+        assert report(client, review_id).status_code == 404
+
+
+def test_queue_puts_awaiting_reviews_first_then_unchecked_published(app, client, prof_id, moderation):
+    with app.app_context():
+        db.session.add_all([
+            Review(professor_id=prof_id, rating=7, text='legacy published'),
+            Review(professor_id=prof_id, rating=7, text='first awaiting', status=REVIEW_AWAITING),
+            Review(professor_id=prof_id, rating=7, text='second awaiting', status=REVIEW_AWAITING),
+            Review(professor_id=prof_id, rating=7, text='hidden', status=REVIEW_HIDDEN),
+        ])
+        db.session.commit()
+    assert [r['text'] for r in moderation_queue(client).get_json()] == \
+        ['first awaiting', 'second awaiting', 'legacy published']
+
+
+def test_ok_verdict_publishes_an_awaiting_review(app, client, prof_id, moderation):
+    review_id = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    assert [r['id'] for r in moderation_queue(client).get_json()] == [review_id]
+    assert decide(client, review_id, verdict='ok').get_json() == {'success': True, 'banned': False}
+    assert stored_review(app, review_id).status == REVIEW_PUBLISHED
+    assert public_texts(client, prof_id) == [GOOD_TEXT]
+    assert moderation_queue(client).get_json() == []
+
+
+def test_remove_verdict_hides_an_awaiting_review_and_can_ban(app, client, prof_id, moderation):
+    author = new_browser(app)
+    review_id = post_review(author, professor_id=prof_id).get_json()['review']['id']
+    res = decide(client, review_id, verdict='remove', reason='Personal attack', ban=True)
+    assert res.get_json() == {'success': True, 'banned': True}
+    assert stored_review(app, review_id).status == REVIEW_HIDDEN
+    assert public_texts(client, prof_id) == []
+    assert author.get('/').status_code == 403
+
+
+def test_ok_verdict_does_not_republish_what_a_person_hid(app, client, prof_id, moderation):
+    review_id = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    client.post(f'/api/admin/reviews/{review_id}', json={'action': 'hide'}, headers=ADMIN)
+    assert moderation_queue(client).get_json() == []
+    decide(client, review_id, verdict='ok')
+    review = stored_review(app, review_id)
+    assert (review.status, review.ai_verdict) == (REVIEW_HIDDEN, None), 'the person decided first'
+
+
+def test_admin_lists_awaiting_reviews_and_can_publish_them(app, client, prof_id, moderation):
+    first = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    second = post_review(new_browser(app), professor_id=prof_id).get_json()['review']['id']
+    listing = client.get('/api/admin/reviews', headers=ADMIN).get_json()
+    assert [(r['id'], r['status']) for r in listing['awaiting']] == [(first, 'awaiting'), (second, 'awaiting')]
+    assert listing['flagged'] == [] and listing['recent'] == []
+
+    assert client.post(f'/api/admin/reviews/{first}', json={'action': 'publish'}, headers=ADMIN).status_code == 200
+    assert public_texts(client, prof_id) == [GOOD_TEXT]
+    assert [r['id'] for r in moderation_queue(client).get_json()] == [second], 'the AI does not re-check it'
+    listing = client.get('/api/admin/reviews', headers=ADMIN).get_json()
+    assert [r['id'] for r in listing['awaiting']] == [second]
+    assert [r['id'] for r in listing['recent']] == [first]
+
+
+def test_admin_can_hide_or_block_the_author_of_an_awaiting_review(app, client, prof_id, moderation):
+    author = new_browser(app)
+    hidden = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    banned = post_review(author, professor_id=prof_id).get_json()['review']['id']
+    assert client.post(f'/api/admin/reviews/{hidden}', json={'action': 'hide'}, headers=ADMIN).status_code == 200
+    assert client.post(f'/api/admin/reviews/{banned}', json={'action': 'ban'}, headers=ADMIN).status_code == 200
+    assert (stored_review(app, hidden).status, stored_review(app, banned).status) == (REVIEW_HIDDEN, REVIEW_HIDDEN)
+    assert author.get('/').status_code == 403
+    assert public_texts(client, prof_id) == []
+    listing = client.get('/api/admin/reviews', headers=ADMIN).get_json()
+    assert listing['awaiting'] == [] and {r['id'] for r in listing['flagged']} == {hidden, banned}
+
+
+def test_an_awaiting_review_cannot_be_reported(app, client, prof_id):
+    review_id = post_review(client, professor_id=prof_id).get_json()['review']['id']
+    assert report(new_browser(app), review_id).status_code == 404
+
+
+def test_average_needs_five_reviews(app, client, prof_id):
+    browsers = [client] + [new_browser(app) for _ in range(4)]
+    for n, browser in enumerate(browsers[:4]):
+        post_review(browser, professor_id=prof_id, rating=6, text='')
+    assert client.get(f'/api/professors/{prof_id}').get_json()['avg_rating'] is None
+    assert 'Rated' not in client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
+    post_review(browsers[4], professor_id=prof_id, rating=6, text='')
+    assert client.get(f'/api/professors/{prof_id}').get_json()['avg_rating'] == 6.0
+    listed = {p['id']: p for p in client.get('/api/professors').get_json()}
+    assert listed[prof_id]['avg_rating'] == 6.0
+    assert 'Rated 6/10 from 5 anonymous student reviews.' in \
+        client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
+
+
+# ---------- ADA photos ----------
+
+def test_photo_links_never_reach_the_browser(app, client, prof_id):
+    from models import Professor
+    with app.app_context():
+        db.session.get(Professor, prof_id).image_url = 'https://www.ada.edu.az/media/ada.jpg'
+        db.session.commit()
+    for path in ('/api/professors', '/api/professors?school=SITE', f'/api/professors/{prof_id}'):
+        body = client.get(path).get_data(as_text=True)
+        assert 'image_url' not in body and 'ada.jpg' not in body, path
+    assert 'ada.jpg' not in client.get(f'/professor/{prof_id}-ada-lovelace').get_data(as_text=True)
+
+
+def test_csp_allows_images_from_this_site_only(client):
+    csp = client.get('/').headers['Content-Security-Policy']
+    assert "img-src 'self' data:;" in csp
+    assert 'ada.edu.az' not in csp
+
+
+# ---------- Profile removal (opt-out) ----------
+
+def removal_request(client, prof_id, **body):
+    return client.post(f'/api/professors/{prof_id}/removal-request', json=body)
+
+
+def remove_profile(app, prof_id):
+    from models import Professor
+    with app.app_context():
+        db.session.get(Professor, prof_id).opted_out = True
+        db.session.commit()
+
+
+def stored_requests(app):
+    from models import ProfileRequest
+    with app.app_context():
+        return [(r.professor_id, r.message, r.contact, r.status) for r in ProfileRequest.query.order_by(ProfileRequest.id)]
+
+
+def test_removal_request_needs_no_rules_cookie(app, prof_id):
+    professor = new_browser(app, rules=False)
+    res = removal_request(professor, prof_id, message='  I am Ada Lovelace; please remove my profile. ',
+                          contact=' ada@example.com ')
+    assert res.status_code == 202 and res.get_json() == {'success': True}
+    assert stored_requests(app) == [(prof_id, 'I am Ada Lovelace; please remove my profile.', 'ada@example.com', 'open')]
+    assert app.test_client(use_cookies=False).post(
+        f'/api/professors/{prof_id}/removal-request', json={'message': 'Please remove it.'}).status_code == 202
+    assert stored_requests(app)[1][2] is None, 'the email is optional'
+
+
+@pytest.mark.parametrize('body, error', [
+    ({}, 'Please write a short message.'),
+    ({'message': '   '}, 'Please write a short message.'),
+    ({'message': 5}, 'Please write a short message.'),
+    ({'message': 'x' * 1001}, 'Message is too long (max 1000 characters).'),
+    ({'message': 'Remove it', 'contact': 7}, 'Email must be text.'),
+    ({'message': 'Remove it', 'contact': 'not an email'}, 'Enter a valid email address, or leave it empty.'),
+    ({'message': 'Remove it', 'contact': 'a@b.c' + 'x' * 200}, 'Email is too long (max 200 characters).'),
+])
+def test_removal_request_validation(app, client, prof_id, body, error):
+    res = removal_request(client, prof_id, **body)
+    assert res.status_code == 400
+    assert res.get_json() == {'error': error}
+    assert stored_requests(app) == []
+
+
+def test_removal_request_edge_cases(app, client, prof_id):
+    assert removal_request(client, prof_id, message='x' * 1000, contact='').status_code == 202
+    assert client.post(f'/api/professors/{prof_id}/removal-request', data='hi', content_type='text/plain').status_code == 400
+    assert removal_request(client, 999999, message='Remove it').status_code == 404
+    remove_profile(app, prof_id)
+    assert removal_request(client, prof_id, message='Remove it').status_code == 410
+
+
+def test_removal_requests_are_limited_per_network(app, prof_id):
+    codes = [removal_request(new_browser(app), prof_id, message=f'Request {n}').status_code for n in range(6)]
+    assert codes == [202] * 5 + [429]
+    assert removal_request(new_browser(app, ip='203.0.113.50'), prof_id, message='Another network').status_code == 202
+
+
+def test_invalid_removal_requests_do_not_use_up_the_limit(app, client, prof_id):
+    for _ in range(6):
+        assert removal_request(client, prof_id, message='').status_code == 400
+    assert removal_request(client, prof_id, message='Please remove it').status_code == 202
+
+
+def test_removed_profile_disappears_everywhere(app, client, prof_id):
+    post_review(client, professor_id=prof_id, text='Clear lectures, fair exams.')
+    post_review(new_browser(app), professor_id=prof_id, text='')
+    approve_all(app)
+    remove_profile(app, prof_id)
+
+    assert [p['name'] for p in client.get('/api/professors').get_json()] == ['Alan Turing']
+    assert [p['name'] for p in client.get('/api/professors?school=SITE').get_json()] == ['Alan Turing']
+    school = client.get('/api/schools').get_json()[0]
+    assert (school['professor_count'], school['review_count']) == (1, 0)
+    assert client.get('/api/reviews/recent').get_json() == []
+    assert f'/professor/{prof_id}-' not in client.get('/sitemap.xml').get_data(as_text=True)
+    assert 'reviews of 1 professors' in client.get('/school/SITE').get_data(as_text=True)
+
+    res = client.get(f'/api/professors/{prof_id}')
+    assert res.status_code == 410
+    assert res.get_json() == {'error': "This profile was removed at the professor's request.", 'code': 'profile_removed'}
+    with app.app_context():
+        assert Review.query.filter_by(professor_id=prof_id).count() == 2, 'reviews stay in the database'
+
+
+@pytest.mark.parametrize('path', ['/professor/{id}-ada-lovelace', '/professor/{id}', '/professor/{id}-old-name'])
+def test_removed_profile_page_is_gone_and_not_indexed(app, client, prof_id, path):
+    remove_profile(app, prof_id)
+    res = client.get(path.format(id=prof_id))
+    html = res.get_data(as_text=True)
+    assert res.status_code == 410
+    assert '<title>Profile removed · ADA Ratings</title>' in html
+    assert "This profile was removed at the professor&#39;s request." in html
+    assert '<meta name="robots" content="noindex">' in html
+    assert 'Ada Lovelace' not in html
+    assert client.get(f'/professor.html?id={prof_id}').headers['Location'].endswith('/')
+
+
+def test_removed_profile_takes_no_new_reviews_or_reports(app, client, prof_id):
+    review_id = published_review(client, prof_id)
+    remove_profile(app, prof_id)
+    res = post_review(new_browser(app), professor_id=prof_id)
+    assert res.status_code == 410 and res.get_json()['code'] == 'profile_removed'
+    assert report(new_browser(app), review_id).status_code == 404
+
+
+def test_admin_removes_a_profile_from_a_request(app, client, prof_id, moderation):
+    removal_request(client, prof_id, message='First request', contact='ada@example.com')
+    removal_request(client, prof_id, message='Second request')
+    from models import Professor
+    with app.app_context():
+        turing = Professor.query.filter_by(name='Alan Turing').one().id
+    removal_request(client, turing, message='Not me')
+
+    assert client.get('/api/admin/profile-requests', headers=MODERATOR).status_code == 401
+    listing = client.get('/api/admin/profile-requests', headers=ADMIN).get_json()
+    assert [(r['message'], r['contact'], r['status']) for r in listing['requests']] == [
+        ('Not me', None, 'open'), ('Second request', None, 'open'), ('First request', 'ada@example.com', 'open'),
+    ]
+    assert listing['requests'][2]['professor'] == {'id': prof_id, 'name': 'Ada Lovelace', 'school': 'SITE',
+                                                  'opted_out': False}
+    assert listing['requests'][2]['created_at'] is not None
+    assert listing['removed'] == []
+    first, not_me = listing['requests'][2]['id'], listing['requests'][0]['id']
+
+    def act(request_id, action, auth=ADMIN):
+        return client.post(f'/api/admin/profile-requests/{request_id}', json={'action': action}, headers=auth)
+
+    assert act(first, 'remove_profile', auth=MODERATOR).status_code == 401
+    assert act(first, 'nonsense').status_code == 400
+    assert act(999999, 'dismiss').status_code == 404
+    assert act(first, 'remove_profile').status_code == 200
+    assert act(not_me, 'dismiss').status_code == 200
+    assert client.get(f'/api/professors/{prof_id}').status_code == 410
+    assert client.get(f'/api/professors/{turing}').status_code == 200
+
+    listing = client.get('/api/admin/profile-requests', headers=ADMIN).get_json()
+    assert sorted((r['message'], r['status']) for r in listing['requests']) == [
+        ('First request', 'done'), ('Not me', 'dismissed'), ('Second request', 'done'),
+    ], 'one removal answers every open request about that profile'
+    assert listing['removed'] == [{'id': prof_id, 'name': 'Ada Lovelace', 'school': 'SITE', 'opted_out': True}]
+
+
+def test_admin_can_restore_a_removed_profile(app, client, prof_id, moderation):
+    remove_profile(app, prof_id)
+    assert client.post(f'/api/admin/professors/{prof_id}/restore', headers=MODERATOR).status_code == 401
+    assert client.post(f'/api/admin/professors/{prof_id}/restore', headers=ADMIN).status_code == 200
+    assert client.post('/api/admin/professors/999999/restore', headers=ADMIN).status_code == 404
+    assert client.get(f'/api/professors/{prof_id}').status_code == 200
+    assert client.get(f'/professor/{prof_id}-ada-lovelace').status_code == 200
+    assert client.get('/api/admin/profile-requests', headers=ADMIN).get_json()['removed'] == []
+
+
+def test_sync_never_brings_back_a_removed_profile(app, client, prof_id):
+    from faculty import sync_faculty
+    from models import Professor
+    remove_profile(app, prof_id)
+    with app.app_context():
+        db.session.get(Professor, prof_id).active = False
+        db.session.commit()
+        entries = [faculty_entry('Ada Lovelace', title='Distinguished Professor'), faculty_entry('Alan Turing')]
+        assert sync_faculty(entries) == {'added': 0, 'updated': 1, 'deactivated': 0, 'reactivated': 0}
+        ada = db.session.get(Professor, prof_id)
+        assert (ada.opted_out, ada.active, ada.title) == (True, False, 'Professor'), 'left exactly as it was'
+        assert Professor.query.count() == 2, 'not added back as a new row either'
+    assert [p['name'] for p in client.get('/api/professors').get_json()] == ['Alan Turing']
+
+
+def test_sync_guard_ignores_removed_profiles(app):
+    from faculty import sync_faculty
+    from models import Professor, School
+    with app.app_context():
+        school_id = School.query.first().id
+        db.session.add_all([Professor(name=f'Removed {n}', school_id=school_id, opted_out=True) for n in range(6)])
+        db.session.commit()
+        # Ada and Turing are the only shown professors; losing one of two is not "most of the site".
+        summary = sync_faculty([faculty_entry('Ada Lovelace')])
+        assert summary['deactivated'] == 1
+        assert Professor.query.filter_by(name='Alan Turing').one().active is False
+        assert Professor.query.filter_by(opted_out=True, active=True).count() == 6, 'removed rows untouched'
+        # And an empty file still cannot hide the shown professors.
+        assert sync_faculty([])['deactivated'] == 0
+        assert Professor.query.filter_by(name='Ada Lovelace').one().active is True
+
+
+def test_legacy_professor_table_gains_opted_out(tmp_path):
+    import sqlite3
+    from sqlalchemy import inspect
+    from app import create_app
+    path = tmp_path / 'before-opt-out.db'
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE school (id INTEGER PRIMARY KEY, code VARCHAR(20) UNIQUE NOT NULL, name VARCHAR(100) NOT NULL);
+        CREATE TABLE professor (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, title VARCHAR(100),
+            specialization VARCHAR(100), bio TEXT, image_url VARCHAR(300), profile_url VARCHAR(300),
+            active BOOLEAN NOT NULL DEFAULT 1, school_id INTEGER NOT NULL REFERENCES school(id));
+        CREATE TABLE review (id INTEGER PRIMARY KEY, professor_id INTEGER NOT NULL REFERENCES professor(id),
+            text TEXT NOT NULL, rating INTEGER NOT NULL);
+        INSERT INTO school VALUES (1, 'SITE', 'School of IT and Engineering');
+        INSERT INTO professor (id, name, school_id) VALUES (1, 'Ada Lovelace', 1);
+    """)
+    con.close()
+    for _ in range(2):  # a second start must be a no-op
+        old = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': f'sqlite:///{path}', 'SEED_IF_EMPTY': False,
+                          'SYNC_FACULTY': False})
+    with old.app_context():
+        assert 'opted_out' in {c['name'] for c in inspect(db.engine).get_columns('professor')}
+        assert 'profile_request' in inspect(db.engine).get_table_names()
+    browser = old.test_client()
+    assert [p['name'] for p in browser.get('/api/professors').get_json()] == ['Ada Lovelace']
+    assert removal_request(browser, 1, message='Please remove my profile').status_code == 202
+    with old.app_context():
+        db.engine.dispose()

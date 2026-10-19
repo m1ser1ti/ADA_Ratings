@@ -3,6 +3,10 @@
 The JSON file is the source of truth for who teaches where. Syncing is idempotent and runs on
 every start: it updates titles, photos and profile links, adds new faculty, and marks
 professors who left as inactive. Nobody is deleted, so their reviews and pages survive.
+
+Profiles removed at the professor's request (Professor.opted_out) are still matched, so the same
+person is never added back as a new row, but the sync leaves them exactly as they are.
+Photo links are kept in the database only; the site never sends them to browsers.
 """
 import json
 import logging
@@ -101,6 +105,8 @@ def sync_faculty(entries=None):
 
     summary = {'added': 0, 'updated': 0, 'deactivated': 0, 'reactivated': 0}
     for p, values, school in matched.values():
+        if p.opted_out:
+            continue  # removed at the professor's request: never updated, reactivated or shown again
         changed = any(getattr(p, field) != value for field, value in values.items()) or p.school_id != school.id
         for field, value in values.items():
             setattr(p, field, value)
@@ -114,8 +120,10 @@ def sync_faculty(entries=None):
         db.session.add(Professor(school_id=school.id, active=True, **values))
         summary['added'] += 1
 
-    leaving = [p for p in existing if p.id not in matched and p.active]
-    active_before = sum(1 for p in existing if p.active)
+    # The safety guard counts only professors the site shows; removed profiles are left alone.
+    shown = [p for p in existing if p.active and not p.opted_out]
+    leaving = [p for p in shown if p.id not in matched]
+    active_before = len(shown)
     if active_before and len(leaving) > active_before * (1 - MIN_KEEP_SHARE):
         log.error('Faculty sync would hide %s of %s professors; skipped hiding. Check data/faculty.json.',
                   len(leaving), active_before)

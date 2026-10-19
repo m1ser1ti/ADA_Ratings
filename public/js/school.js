@@ -1,7 +1,7 @@
 import {
-  api, emptyState, errorState, escapeHtml, pathParam, plural, professorCard, skeletons,
+  api, emptyState, errorState, pathParam, plural, professorCard, skeletons,
 } from './common.js';
-import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
+import { FALLBACK_ART, SCHOOLS, schoolIcon } from './schools.js';
 
 const code = (pathParam(/^\/school\/([^/]+)/) || '').toUpperCase();
 const grid = document.getElementById('prof-grid');
@@ -22,19 +22,17 @@ function renderHero() {
   document.getElementById('school-code').textContent = code || 'School';
   document.getElementById('crumb-school').textContent = school ? school.name : (code || 'School');
   document.getElementById('school-name').textContent = school ? school.name : (code || 'School');
-  document.getElementById('hero-img').src = `${school ? school.photo : FALLBACK_PHOTO}-1600.webp`;
   if (code) document.title = `${school ? school.name : code} · ADA Ratings`;
 
-  const dean = school && school.dean;
-  const deanEl = document.getElementById('dean');
-  if (!dean) return;
-  deanEl.innerHTML = `
-    <img src="${escapeHtml(dean.image)}" alt="" loading="lazy">
-    <div>
-      <blockquote><p>“${escapeHtml(dean.quote)}”</p></blockquote>
-      <figcaption><strong>${escapeHtml(dean.name)}</strong> · ${escapeHtml(dean.title)}</figcaption>
-    </div>`;
-  deanEl.hidden = false;
+  // The hero is painted with the school's colours and pattern; the big code is decoration.
+  const hero = document.getElementById('school-hero');
+  const art = (school && school.art) || FALLBACK_ART;
+  hero.dataset.pattern = art.pattern;
+  hero.style.setProperty('--art-from', art.from);
+  hero.style.setProperty('--art-to', art.to);
+  hero.style.setProperty('--art-glow', art.glow);
+  document.getElementById('hero-icon').innerHTML = schoolIcon(code);
+  document.getElementById('hero-mark').textContent = code.slice(0, 5);
 }
 
 function renderList() {

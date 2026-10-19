@@ -5,6 +5,11 @@ import {
 import { SCHOOLS } from './schools.js';
 
 const MAX_LENGTH = 5000;
+// Same limits as REMOVAL_MESSAGE_MAX and REMOVAL_CONTACT_MAX in app.py.
+const REMOVAL_MESSAGE_MAX = 1000;
+const REMOVAL_CONTACT_MAX = 200;
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const AWAITING_MESSAGE = 'Thanks! Your review was sent and will appear after a quick check, usually within a few minutes.';
 
 const profId = Number(pathParam(/^\/professor\/(\d+)/));
 const root = document.getElementById('professor');
@@ -13,6 +18,10 @@ const announcer = document.getElementById('page-status');
 
 let professor = null;
 let newReviewId = null;
+// The visitor's own written review while it waits for a moderator. Kept for this tab only, so a
+// reload does not make it look lost; dropped once it shows up in the published list.
+let awaitingReview = null;
+const AWAITING_KEY = `ada-ratings:awaiting:${profId}`;
 
 const SORTS = {
   newest: (a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id,
@@ -67,6 +76,17 @@ function rememberReported(id) {
   } catch { /* storage blocked: the button simply shows again next visit */ }
 }
 
+function loadAwaiting() {
+  try { return JSON.parse(sessionStorage.getItem(AWAITING_KEY) || 'null'); } catch { return null; }
+}
+
+function saveAwaiting(review) {
+  try {
+    if (review) sessionStorage.setItem(AWAITING_KEY, JSON.stringify(review));
+    else sessionStorage.removeItem(AWAITING_KEY);
+  } catch { /* storage blocked: the note lasts until the page is reloaded */ }
+}
+
 function announce(message) {
   announcer.textContent = '';
   // A fresh text node after a tick makes repeated messages announce again.
@@ -78,7 +98,7 @@ function renderProfile(p) {
   const profile = safeUrl(p.profile_url);
   return `
     <section class="prof-header" aria-labelledby="prof-name">
-      ${avatarImg(p, 'avatar', `Photo of ${p.name}`)}
+      ${avatarImg(p, 'avatar', '')}
       <div>
         <h1 id="prof-name">${escapeHtml(p.name)}</h1>
         <p class="prof-title">${escapeHtml(p.title || '')}</p>
@@ -189,7 +209,16 @@ function radioOptions(name, prefix, choices, extra = '') {
     </span>`).join('');
 }
 
+function renderSent() {
+  return `
+    <section class="card review-form" id="review-form" aria-labelledby="form-title">
+      <h2 id="form-title">Review sent</h2>
+      <p class="status success" id="form-status" tabindex="-1">${AWAITING_MESSAGE}</p>
+    </section>`;
+}
+
 function renderForm(p) {
+  if (awaitingReview) return renderSent();
   const numbers = max => Array.from({ length: max }, (_, i) => [i + 1, i + 1]);
   const ratings = radioOptions('rating', 'rate', numbers(10), ' required aria-describedby="rating-error"');
   const difficulties = radioOptions('difficulty', 'diff', numbers(5));
@@ -249,7 +278,22 @@ function visibleReviews() {
   return courseFilter ? professor.reviews.filter(r => r.course_code === courseFilter) : professor.reviews;
 }
 
+function renderAwaitingItem(r) {
+  return `
+    <li class="review is-new" data-review-id="${Number(r.id)}">
+      <div class="review-meta">
+        ${ratingBadge(r.rating)}
+        <span>Your review · waiting for a quick check</span>
+      </div>
+      ${reviewDetails(r)}
+      <p>${escapeHtml(r.text)}</p>
+      <p class="review-empty" style="margin-top:10px">Only you can see it for now. It appears here for everyone once a moderator has checked it.</p>
+    </li>`;
+}
+
 function renderReviewItems(reviews, sort) {
+  const awaiting = awaitingReview ? renderAwaitingItem(awaitingReview) : '';
+  if (!reviews.length && awaiting) return awaiting;
   if (!reviews.length) {
     return `<li class="state">
       <h3>No reviews yet</h3>
@@ -258,7 +302,7 @@ function renderReviewItems(reviews, sort) {
     </li>`;
   }
   const reported = reportedIds();
-  return [...reviews].sort(SORTS[sort] || SORTS.newest).map(r => {
+  return awaiting + [...reviews].sort(SORTS[sort] || SORTS.newest).map(r => {
     const mine = r.id === newReviewId;
     const action = mine ? '' : reported.has(r.id)
       ? '<span class="review-reported">Reported</span>'
@@ -302,6 +346,102 @@ function renderReviews(p) {
     </section>`;
 }
 
+function renderRemoval(p) {
+  return `
+    <section class="removal" id="removal" aria-label="Profile removal"
+      style="margin-top:56px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--text-2)">
+      <button type="button" class="link-btn" id="removal-toggle" aria-expanded="false" aria-controls="removal-form">Are you this professor? Request removal of this profile</button>
+      <form class="report-form" id="removal-form" style="max-width:600px" novalidate hidden>
+        <p style="margin-bottom:14px">If you are ${escapeHtml(p.name)} and do not want a profile on this site, tell us here. A moderator reads every request. Once it is accepted, this page and its reviews are no longer shown anywhere on the site.</p>
+        <label class="label" for="removal-message">Your message</label>
+        <textarea class="textarea" id="removal-message" name="message" maxlength="${REMOVAL_MESSAGE_MAX}" required
+          style="min-height:110px" aria-describedby="removal-message-error removal-count"
+          placeholder="For example: I am this professor and I would like this profile removed."></textarea>
+        <span class="char-count" id="removal-count" style="margin-bottom:10px">0 / ${REMOVAL_MESSAGE_MAX}</span>
+        <p class="field-error" id="removal-message-error"></p>
+        <label class="label" for="removal-contact">Your email <span class="label-hint">(optional, if you would like a reply)</span></label>
+        <input class="input" id="removal-contact" name="contact" type="email" maxlength="${REMOVAL_CONTACT_MAX}"
+          autocomplete="email" spellcheck="false" style="width:100%" aria-describedby="removal-contact-error">
+        <p class="field-error" id="removal-contact-error"></p>
+        <div class="report-row" style="margin-top:16px">
+          <button type="submit" class="btn btn-primary btn-sm">Send request</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-removal-cancel>Cancel</button>
+        </div>
+        <p class="status" id="removal-status"></p>
+      </form>
+    </section>`;
+}
+
+function removalErrorMessage(err) {
+  if (err.status === 429) return 'Too many requests from your network today. Please try again tomorrow.';
+  return err.message || 'Could not send your request. Please try again.';
+}
+
+function bindRemoval() {
+  const section = document.getElementById('removal');
+  const toggle = document.getElementById('removal-toggle');
+  const form = document.getElementById('removal-form');
+  const message = form.querySelector('#removal-message');
+  const contact = form.querySelector('#removal-contact');
+  const counter = form.querySelector('#removal-count');
+  const status = form.querySelector('#removal-status');
+  const send = form.querySelector('[type="submit"]');
+
+  const setOpen = open => {
+    form.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) message.focus();
+    else toggle.focus();
+  };
+  toggle.addEventListener('click', () => setOpen(form.hidden));
+  form.querySelector('[data-removal-cancel]').addEventListener('click', () => setOpen(false));
+
+  message.addEventListener('input', () => {
+    counter.textContent = `${message.value.length} / ${REMOVAL_MESSAGE_MAX}`;
+    if (message.value.trim()) setFieldError('removal-message-error', '', [message]);
+  });
+  contact.addEventListener('input', () => {
+    if (!contact.value.trim() || EMAIL.test(contact.value.trim())) setFieldError('removal-contact-error', '', [contact]);
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (send.getAttribute('aria-busy') === 'true') return;
+    status.textContent = '';
+    status.className = 'status';
+    const text = message.value.trim();
+    const email = contact.value.trim();
+    const messageError = text ? '' : 'Please write a short message.';
+    const contactError = email && !EMAIL.test(email) ? 'Enter a valid email address, or leave it empty.' : '';
+    setFieldError('removal-message-error', messageError, [message]);
+    setFieldError('removal-contact-error', contactError, [contact]);
+    if (messageError) { message.focus(); return; }
+    if (contactError) { contact.focus(); return; }
+
+    send.setAttribute('aria-busy', 'true');
+    send.textContent = 'Sending…';
+    try {
+      await api(`/api/professors/${professor.id}/removal-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, contact: email }),
+      });
+    } catch (err) {
+      send.removeAttribute('aria-busy');
+      send.textContent = 'Send request';
+      status.className = 'status error';
+      status.textContent = removalErrorMessage(err);
+      announce(status.textContent);
+      return;
+    }
+    const done = 'Thank you. Your request was sent. A moderator will look at it soon'
+      + `${email ? ' and reply to the email you gave' : ''}.`;
+    section.innerHTML = `<p class="status success" id="removal-done" tabindex="-1" style="max-width:600px">${escapeHtml(done)}</p>`;
+    document.getElementById('removal-done').focus();
+    announce(done);
+  });
+}
+
 // Phones: a "Write a review" bar stays at the bottom until the form itself is on screen.
 let ctaObserver = null;
 function bindMobileCta() {
@@ -315,7 +455,9 @@ function bindMobileCta() {
   }
   const form = document.getElementById('review-form');
   ctaObserver?.disconnect();
-  if (!form || !('IntersectionObserver' in window)) return;
+  // Already sent one: nothing more to write here today.
+  bar.classList.toggle('is-hidden', Boolean(awaitingReview));
+  if (awaitingReview || !form || !('IntersectionObserver' in window)) return;
   ctaObserver = new IntersectionObserver(([entry]) => {
     bar.classList.toggle('is-hidden', entry.isIntersecting || entry.boundingClientRect.top < 0);
   });
@@ -336,12 +478,14 @@ function render() {
     <div class="prof-columns">
       ${renderReviews(p)}
       ${renderForm(p)}
-    </div>`;
+    </div>
+    ${renderRemoval(p)}`;
   root.removeAttribute('aria-busy');
   sortOrder = 'newest';
   courseFilter = '';
-  bindForm();
+  if (!awaitingReview) bindForm();
   bindReports();
+  bindRemoval();
   bindShare();
   bindMobileCta();
   const showList = () => {
@@ -459,12 +603,13 @@ function setFieldError(id, message, fields) {
 
 function submitErrorMessage(err) {
   if (err.code === 'rules_required') return 'Please accept the site rules, then press Submit again.';
+  if (err.code === 'profile_removed') return err.message;
   if (err.status === 429) return 'Too many reviews from your network right now. Please try again later.';
   return err.message || 'Could not submit your review. Please try again.';
 }
 
 function bindForm() {
-  const form = root.querySelector('form');
+  const form = root.querySelector('#review-form form');
   const textarea = form.querySelector('#review-text');
   const counter = form.querySelector('#char-count');
   const status = form.querySelector('#form-status');
@@ -568,6 +713,17 @@ function bindForm() {
 
     // The review is saved from here on: never offer to submit it again.
     forgetProfessors();
+    if (res?.status === 'awaiting') {
+      // Not public yet: show the author a note, not a published review.
+      awaitingReview = res.review;
+      saveAwaiting(awaitingReview);
+      render();
+      const sent = document.getElementById('form-status');
+      sent.scrollIntoView({ block: 'center' });
+      sent.focus({ preventScroll: true });
+      announce(AWAITING_MESSAGE);
+      return;
+    }
     newReviewId = res?.review?.id ?? null;
     try {
       professor = await api(`/api/professors/${professor.id}`);
@@ -580,8 +736,15 @@ function bindForm() {
     const heading = document.getElementById('reviews-title');
     heading.scrollIntoView({ block: 'start' });
     heading.focus({ preventScroll: true });
-    announce(`Thank you! Your review has been published. ${plural(professor.review_count, 'review')} in total.`);
+    announce(`Thank you! Your rating has been published. ${plural(professor.review_count, 'review')} in total.`);
   });
+}
+
+function removedProfile(message) {
+  document.title = 'Profile removed · ADA Ratings';
+  document.getElementById('crumb-prof').textContent = 'Profile removed';
+  root.innerHTML = `<div class="state" style="margin-top:28px"><h1 class="state-title">Profile removed</h1><p>${escapeHtml(message)} <a href="/">Go to all schools</a>.</p></div>`;
+  root.removeAttribute('aria-busy');
 }
 
 function notFound(message) {
@@ -600,9 +763,17 @@ async function load() {
   try {
     professor = await api(`/api/professors/${profId}`);
   } catch (err) {
-    if (err.status === 404) notFound('This professor may have been removed.');
+    if (err.status === 410) removedProfile(err.message);
+    else if (err.status === 404) notFound('This professor may have been removed.');
     else errorState(root, err.status === 0 ? err.message : 'Could not load this professor. Please try again.', load);
     return;
+  }
+  awaitingReview = loadAwaiting();
+  if (awaitingReview && professor.reviews.some(r => r.id === awaitingReview.id)) {
+    // A moderator has approved it since: it is in the list like everyone else's.
+    newReviewId = awaitingReview.id;
+    awaitingReview = null;
+    saveAwaiting(null);
   }
   render();
 }

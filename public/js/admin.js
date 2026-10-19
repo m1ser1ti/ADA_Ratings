@@ -6,8 +6,16 @@ const REASON_LABELS = {
   personal_attack: 'Personal attack',
   false_information: 'False information',
   spam: 'Spam',
+  faculty_request: 'Professor asked for a check',
   other: 'Other',
 };
+const REQUEST_STATUS = { open: 'Open', done: 'Profile removed', dismissed: 'Dismissed' };
+const REQUEST_CONFIRMS = {
+  remove_profile: 'Remove this profile from the site?\n\nThe page, its reviews and every listing of it disappear for '
+    + 'everyone. You can restore it later under "Removed profiles".',
+  dismiss: 'Dismiss this request? The profile stays on the site.',
+};
+const REQUEST_DONE = { remove_profile: 'Profile removed.', dismiss: 'Request dismissed.' };
 const BAN_KINDS = { device: 'Browser', network: 'Network' };
 const BAN_SOURCES = { ai: 'AI moderator', admin: 'Moderator' };
 const CONFIRMS = {
@@ -26,7 +34,10 @@ const loginForm = document.getElementById('admin-login');
 const tokenInput = document.getElementById('admin-token');
 const loginError = document.getElementById('admin-error');
 const queue = document.getElementById('admin-queue');
+const awaitingList = document.getElementById('admin-awaiting');
 const flaggedList = document.getElementById('admin-flagged');
+const requestsList = document.getElementById('admin-requests');
+const removedList = document.getElementById('admin-removed');
 const recentList = document.getElementById('admin-recent');
 const bansList = document.getElementById('admin-bans');
 const aiNote = document.getElementById('admin-ai-note');
@@ -96,6 +107,7 @@ function reviewItem(r, blockedReviews) {
   const reasons = Object.entries(r.reasons || {})
     .map(([reason, n]) => `${REASON_LABELS[reason] || reason} × ${n}`).join(', ');
   const restore = r.status !== 'published' || r.report_count > 0;
+  const publishLabel = r.status === 'published' ? 'Keep published' : 'Publish';
   const marked = aiHidden(r) ? ' style="box-shadow:inset 5px 0 0 var(--danger-text)"' : '';
   return `
     <li class="review admin-review" data-id="${id}"${marked}>
@@ -104,14 +116,14 @@ function reviewItem(r, blockedReviews) {
         <a href="/professor/${Number(r.professor.id)}">${escapeHtml(r.professor.name)}</a>
         ${dateTag(r.created_at)}
         <span>#${id}</span>
-        <span class="admin-badge admin-badge--${escapeHtml(r.status)}">${escapeHtml(r.status)}</span>
+        <span class="admin-badge admin-badge--${r.status === 'awaiting' ? 'pending' : escapeHtml(r.status)}">${escapeHtml(r.status)}</span>
         ${aiBadge(r)}
       </div>
       ${r.text ? `<p>${escapeHtml(r.text)}</p>` : '<p class="review-empty">Rated without a written review.</p>'}
       ${aiReason(r)}
       ${reasons ? `<p class="admin-reasons">Reports: ${escapeHtml(reasons)}</p>` : ''}
       <div class="admin-actions">
-        ${restore ? actionButton('publish', r.status === 'published' ? 'Keep published' : 'Publish', id) : ''}
+        ${restore ? actionButton('publish', publishLabel, id) : ''}
         ${r.status !== 'hidden' ? actionButton('hide', 'Hide', id) : ''}
         ${blockedReviews.has(id)
           ? '<span class="pill" style="align-self:center">Author blocked</span>'
@@ -146,6 +158,45 @@ function banItem(b) {
     </li>`;
 }
 
+function requestItem(r) {
+  const id = Number(r.id);
+  const prof = r.professor || {};
+  const name = escapeHtml(prof.name);
+  // A removed profile's page answers 410, so only a live one is linked.
+  const who = prof.opted_out ? `<span>${name}</span>` : `<a href="/professor/${Number(prof.id)}">${name}</a>`;
+  const contact = r.contact
+    ? `<a href="mailto:${escapeHtml(r.contact)}">${escapeHtml(r.contact)}</a>`
+    : 'No email given';
+  const open = r.status === 'open';
+  return `
+    <li class="review" data-request-id="${id}">
+      <div class="review-meta" style="flex-wrap:wrap">
+        ${who}
+        ${prof.school ? `<span class="pill">${escapeHtml(prof.school)}</span>` : ''}
+        ${dateTag(r.created_at)}
+        <span class="admin-badge${open ? ' admin-badge--pending' : ''}">${escapeHtml(REQUEST_STATUS[r.status] || r.status)}</span>
+      </div>
+      <p>${escapeHtml(r.message)}</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--text-2)">Contact: ${contact}</p>
+      ${open ? `<div class="admin-actions">
+        <button type="button" class="btn btn-ghost btn-sm admin-delete" data-request-action="remove_profile">Remove profile<span class="visually-hidden">: ${name}</span></button>
+        <button type="button" class="btn btn-ghost btn-sm" data-request-action="dismiss">Dismiss<span class="visually-hidden">: request about ${name}</span></button>
+      </div>` : ''}
+    </li>`;
+}
+
+function removedItem(p) {
+  const name = escapeHtml(p.name);
+  return `
+    <li class="review" data-professor-id="${Number(p.id)}">
+      <div class="review-meta" style="flex-wrap:wrap;margin-bottom:0">
+        <strong style="color:var(--text)">${name}</strong>
+        ${p.school ? `<span class="pill">${escapeHtml(p.school)}</span>` : ''}
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto" data-restore>Restore<span class="visually-hidden">: ${name}</span></button>
+      </div>
+    </li>`;
+}
+
 function emptyItem(text) {
   return `<li class="state"><p>${escapeHtml(text)}</p></li>`;
 }
@@ -153,8 +204,11 @@ function emptyItem(text) {
 async function loadQueue() {
   let data;
   let bans;
+  let profiles;
   try {
-    [data, bans] = await Promise.all([adminApi('/api/admin/reviews'), adminApi('/api/admin/bans')]);
+    [data, bans, profiles] = await Promise.all([
+      adminApi('/api/admin/reviews'), adminApi('/api/admin/bans'), adminApi('/api/admin/profile-requests'),
+    ]);
   } catch (err) {
     queue.hidden = true;
     loginForm.hidden = false;
@@ -171,9 +225,20 @@ async function loadQueue() {
   const active = bans.filter(b => banActive(b));
   const blockedReviews = new Set(active.filter(b => b.review_id != null).map(b => Number(b.review_id)));
   const item = r => reviewItem(r, blockedReviews);
+  const awaiting = data.awaiting || [];
+  awaitingList.innerHTML = awaiting.length
+    ? awaiting.map(item).join('')
+    : emptyItem('No reviews are waiting. All clear.');
   flaggedList.innerHTML = data.flagged.length
     ? data.flagged.map(item).join('')
     : emptyItem('Nothing reported. All clear.');
+  requestsList.innerHTML = profiles.requests.length
+    ? profiles.requests.map(requestItem).join('')
+    : emptyItem('No removal requests.');
+  removedList.innerHTML = profiles.removed.length
+    ? profiles.removed.map(removedItem).join('')
+    : emptyItem('No profiles have been removed.');
+  const openRequests = profiles.requests.filter(r => r.status === 'open').length;
   recentList.innerHTML = data.recent.length ? data.recent.map(item).join('') : emptyItem('No reviews yet.');
   bansList.innerHTML = bans.length ? bans.map(banItem).join('') : emptyItem('No one is blocked.');
 
@@ -184,8 +249,10 @@ async function loadQueue() {
       + 'Read its reason, and press Publish if it got it wrong.'
     : '';
 
-  status.textContent = `${plural(data.flagged.length, 'review')} ${data.flagged.length === 1 ? 'needs' : 'need'} attention`
-    + `${byAi ? `, ${byAi} hidden by the AI` : ''}. ${plural(active.length, 'active block')}.`;
+  const attention = awaiting.length + data.flagged.length;
+  status.textContent = `${plural(attention, 'review')} ${attention === 1 ? 'needs' : 'need'} attention`
+    + ` (${awaiting.length} waiting for approval)${byAi ? `, ${byAi} hidden by the AI` : ''}. `
+    + `${plural(active.length, 'active block')}. ${plural(openRequests, 'open removal request')}.`;
   return true;
 }
 
@@ -252,6 +319,41 @@ bansList.addEventListener('click', async event => {
     return;
   }
   await reloadAndFocus(bansList, 'Block lifted.');
+});
+
+requestsList.addEventListener('click', async event => {
+  const button = event.target.closest('[data-request-action]');
+  if (!button || button.getAttribute('aria-busy') === 'true') return;
+  const action = button.dataset.requestAction;
+  if (!window.confirm(REQUEST_CONFIRMS[action])) return;
+  const item = button.closest('[data-request-id]');
+  button.setAttribute('aria-busy', 'true');
+  try {
+    await adminApi(`/api/admin/profile-requests/${item.dataset.requestId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+  } catch (err) {
+    failed(button, err);
+    return;
+  }
+  await reloadAndFocus(requestsList, REQUEST_DONE[action]);
+});
+
+removedList.addEventListener('click', async event => {
+  const button = event.target.closest('[data-restore]');
+  if (!button || button.getAttribute('aria-busy') === 'true') return;
+  if (!window.confirm('Restore this profile?\n\nIts page, reviews and listings become public again.')) return;
+  const item = button.closest('[data-professor-id]');
+  button.setAttribute('aria-busy', 'true');
+  try {
+    await adminApi(`/api/admin/professors/${item.dataset.professorId}/restore`, { method: 'POST' });
+  } catch (err) {
+    failed(button, err);
+    return;
+  }
+  await reloadAndFocus(removedList, 'Profile restored.');
 });
 
 if (token()) loadQueue();

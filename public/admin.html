@@ -106,13 +106,22 @@
           <h2 id="admin-flagged-title" tabindex="-1">Needs attention</h2>
           <button type="button" class="btn btn-ghost btn-sm" id="admin-refresh">Refresh</button>
         </div>
-        <p id="admin-ai-note" style="margin:-6px 0 16px;font-size:15px;color:var(--text-2)" hidden></p>
-        <ul class="review-list" id="admin-flagged" aria-labelledby="admin-flagged-title"></ul>
+        <h3 id="admin-awaiting-title" tabindex="-1" style="margin:0 0 6px;font-size:19px">Waiting for approval</h3>
+        <p style="margin:0 0 16px;font-size:15px;color:var(--text-2)">New written reviews are not public until the AI moderator or you approve them. Oldest first.</p>
+        <ul class="review-list" id="admin-awaiting" aria-labelledby="admin-awaiting-title"></ul>
+        <h3 id="admin-reported-title" tabindex="-1" style="margin:32px 0 6px;font-size:19px">Reported or hidden</h3>
+        <p id="admin-ai-note" style="margin:0 0 16px;font-size:15px;color:var(--text-2)" hidden></p>
+        <ul class="review-list" id="admin-flagged" aria-labelledby="admin-reported-title"></ul>
         <div class="reviews-head admin-gap"><h2 id="admin-recent-title" tabindex="-1">Latest published</h2></div>
         <ul class="review-list" id="admin-recent" aria-labelledby="admin-recent-title"></ul>
         <div class="reviews-head admin-gap"><h2 id="admin-bans-title" tabindex="-1">Blocked browsers</h2></div>
         <p style="margin:-6px 0 16px;font-size:15px;color:var(--text-2)">A blocked browser can neither open the site nor post; a blocked network cannot post. Lift a block if it was a mistake.</p>
         <ul class="review-list" id="admin-bans" aria-labelledby="admin-bans-title"></ul>
+        <div class="reviews-head admin-gap"><h2 id="admin-requests-title" tabindex="-1">Profile removal requests</h2></div>
+        <p style="margin:-6px 0 16px;font-size:15px;color:var(--text-2)">Sent from a professor's page. Removing a profile hides the page, its reviews and every listing of it; the data stays and the profile can be restored below.</p>
+        <ul class="review-list" id="admin-requests" aria-labelledby="admin-requests-title"></ul>
+        <div class="reviews-head admin-gap"><h2 id="admin-removed-title" tabindex="-1">Removed profiles</h2></div>
+        <ul class="review-list" id="admin-removed" aria-labelledby="admin-removed-title"></ul>
       </div>
       <p id="admin-status" class="visually-hidden" role="status"></p>
     </div>

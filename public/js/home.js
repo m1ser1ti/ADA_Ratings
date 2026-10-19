@@ -1,6 +1,6 @@
 import {
-  allProfessors, api, emptyState, errorState, escapeHtml, formatDate, plural, professorCard, ratingBadge, schoolUrl,
-  skeletons,
+  allProfessors, api, emptyState, errorState, escapeHtml, focusHeroSearch, formatDate, plural, professorCard, ratingBadge,
+  schoolUrl, skeletons,
 } from './common.js';
 import { FALLBACK_PHOTO, SCHOOLS } from './schools.js';
 
@@ -120,13 +120,8 @@ async function loadRecent() {
   section.hidden = false;
 }
 
-document.getElementById('cta-search').addEventListener('click', event => {
-  event.preventDefault();
-  const input = document.getElementById('hero-search');
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  input.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
-  input.focus({ preventScroll: true });
-});
+// Arriving from "Rate a professor" on another page lands on the search, ready to type.
+if (window.location.hash === '#hero-search') focusHeroSearch();
 
 loadSchools();
 loadRecent();

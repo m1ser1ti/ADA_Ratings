@@ -381,6 +381,48 @@ function setupMobileMenu(toggle) {
 }
 document.querySelectorAll('.menu-toggle').forEach(setupMobileMenu);
 
+// ---------- Schools menu in the header ----------
+// A disclosure: click or tap toggles it, hovering opens it on mouse devices, Escape closes it.
+
+function setupNavMenu(button) {
+  const panel = document.getElementById(button.getAttribute('aria-controls'));
+  const wrap = button.closest('.nav-menu');
+  if (!panel || !wrap) return;
+  let hoverTimer;
+  const setOpen = open => {
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  button.addEventListener('click', () => setOpen(panel.hidden));
+  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)');
+  wrap.addEventListener('mouseenter', () => { if (canHover.matches) { clearTimeout(hoverTimer); setOpen(true); } });
+  wrap.addEventListener('mouseleave', () => { if (canHover.matches) hoverTimer = setTimeout(() => setOpen(false), 160); });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !panel.hidden) { setOpen(false); button.focus(); }
+  });
+  document.addEventListener('click', event => { if (!wrap.contains(event.target)) setOpen(false); });
+  wrap.addEventListener('focusout', event => {
+    if (event.relatedTarget && !wrap.contains(event.relatedTarget)) setOpen(false);
+  });
+}
+document.querySelectorAll('.nav-menu-button').forEach(setupNavMenu);
+
+// "Rate a professor": on the home page it brings the big search into view and focuses it;
+// elsewhere the link opens the home page at the search.
+export function focusHeroSearch() {
+  const input = document.getElementById('hero-search');
+  if (!input) return false;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  input.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+  input.focus({ preventScroll: true });
+  return true;
+}
+document.querySelectorAll('[data-focus-search]').forEach(link => {
+  link.addEventListener('click', event => {
+    if (focusHeroSearch()) event.preventDefault();
+  });
+});
+
 // A soft shadow once the page scrolls under the sticky header.
 const siteHeader = document.querySelector('.site-header');
 if (siteHeader) {

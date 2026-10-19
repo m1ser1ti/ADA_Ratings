@@ -41,7 +41,7 @@ Run the tests with `python -m pytest`.
 `flask --app app init-db` creates the tables and seeds an empty database explicitly; the app also does this on start.
 
 ## Production notes
-- **Railway:** its Railpack builder ignores the Procfile and would run `python app.py` (a dev server on 127.0.0.1, so every request gets a 502). Set the service's *Custom Start Command* to `gunicorn app:app --preload --workers 1 --threads 8 --bind 0.0.0.0:$PORT` and add the variable `TRUST_PROXY=1`. Link `DATABASE_URL` to a Postgres service and `RATELIMIT_STORAGE_URI` to a Redis service's `REDIS_URL`.
+- **Railway:** its Railpack builder ignores the Procfile and would run `python app.py` (a dev server on 127.0.0.1, so every request gets a 502). Set the service's *Custom Start Command* to `gunicorn app:app --preload --workers 2 --threads 4 --bind 0.0.0.0:$PORT` (two workers are safe because rate limits live in Redis) and add the variable `TRUST_PROXY=1`. Link `DATABASE_URL` to a Postgres service and `RATELIMIT_STORAGE_URI` to a Redis service's `REDIS_URL`.
 - The Procfile runs gunicorn with one worker and several threads, so in-memory rate limits are shared by every request. To run more workers, point `RATELIMIT_STORAGE_URI` at Redis first.
 - Review limits are per browser (an anonymous random cookie), because students on the campus network share one public address. A looser per-network ceiling and a per-professor ceiling stop scripted floods.
 - Three reports hide a review until a moderator checks it, but only when they come from at least three different networks; reports from one network still show up in the queue.

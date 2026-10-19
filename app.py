@@ -556,6 +556,20 @@ def create_app(config=None):
             )
         return response
 
+    # Old domains (REDIRECT_HOSTS, comma separated) send visitors and search engines to SITE_URL.
+    # Only reads move: a POST would lose its body on a 301, so API writes keep working on the old host.
+    legacy_hosts = {h.strip().lower() for h in os.environ.get('REDIRECT_HOSTS', '').split(',') if h.strip()}
+
+    @app.before_request
+    def legacy_domain_redirect():
+        site_url = os.environ.get('SITE_URL', '').rstrip('/')
+        if not (legacy_hosts and site_url) or request.method not in ('GET', 'HEAD'):
+            return None
+        if request.host.split(':')[0].lower() not in legacy_hosts:
+            return None
+        path = request.full_path if request.query_string else request.path
+        return redirect(site_url + path, code=301)
+
     @app.before_request
     def blocked_visitors():
         is_page = request.method == 'GET' and (

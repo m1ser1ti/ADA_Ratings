@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app import RULES_COOKIE, RULES_VERSION
+from app import RULES_COOKIE, RULES_VERSION, create_app
 from extensions import db
 from models import (
     BAN_DEVICE, BAN_NETWORK, REVIEW_AWAITING, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Review,
@@ -1613,3 +1613,18 @@ def test_faculty_sync_adds_missing_schools(app):
         assert sorted(codes) == sorted(set(codes)) and 'SE' in codes
         se = School.query.filter_by(code='SE').one()
         assert se.name == 'School of Education' and len(se.professors) == 10
+
+
+def test_old_domain_redirects_reads_to_site_url(monkeypatch):
+    monkeypatch.setenv('SITE_URL', 'https://www.profscope.example/')
+    monkeypatch.setenv('REDIRECT_HOSTS', 'www.adaratings.example, adaratings.example')
+    old = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite://',
+                      'SEED_IF_EMPTY': False, 'SYNC_FACULTY': False}).test_client()
+
+    page = old.get('/school/SITE?sort=rating', base_url='https://www.adaratings.example')
+    assert page.status_code == 301
+    assert page.headers['Location'] == 'https://www.profscope.example/school/SITE?sort=rating'
+    assert old.get('/', base_url='https://adaratings.example').headers['Location'] == 'https://www.profscope.example/'
+    # The new domain and writes on the old one are served as usual.
+    assert old.get('/robots.txt', base_url='https://www.profscope.example').status_code == 200
+    assert old.post('/api/reviews', json={}, base_url='https://www.adaratings.example').status_code != 301

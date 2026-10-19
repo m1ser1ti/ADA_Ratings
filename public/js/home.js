@@ -52,10 +52,11 @@ async function loadSchools() {
             <div class="school-card-body">
               <h3>${escapeHtml(s.name)}</h3>
               <p class="school-meta">
-                <span>${plural(s.professor_count, 'professor')} · ${plural(s.review_count, 'review')}</span>
+                <span>${plural(s.professor_count, 'professor')}<span class="school-meta-more"> · ${plural(s.review_count, 'review')}</span></span>
                 <span class="school-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
               </p>
             </div>
+            <svg class="school-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5.5 6.5 6.5L9 18.5"/></svg>
           </a>
         </li>`).join('');
 

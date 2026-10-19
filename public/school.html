@@ -125,10 +125,11 @@
             <h2 id="faculty-title">Professors</h2>
           </div>
         </div>
-        <div class="toolbar">
+        <div class="toolbar-sentinel" aria-hidden="true"></div>
+        <div class="toolbar" id="prof-toolbar">
           <label for="prof-filter" class="visually-hidden">Filter professors by name or subject</label>
           <input id="prof-filter" class="input" type="search" placeholder="Filter by name or subject…" autocomplete="off">
-          <label class="field-inline">Sort by
+          <label class="field-inline"><span class="field-inline-text">Sort by</span>
             <select id="prof-sort" class="select">
               <option value="rating">Highest rated</option>
               <option value="reviews">Most reviewed</option>

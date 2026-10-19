@@ -93,8 +93,52 @@ async function loadProfessors() {
   renderList();
 }
 
-filterInput.addEventListener('input', renderList);
-sortSelect.addEventListener('change', renderList);
+// Phones and tablets: the filter bar sticks under the site header (pages.css); it gets a
+// hairline once pinned. The header's height differs per screen, so it is measured.
+function bindStickyToolbar() {
+  const header = document.querySelector('.site-header');
+  const toolbar = document.getElementById('prof-toolbar');
+  const sentinel = document.querySelector('.toolbar-sentinel');
+  if (!header || !toolbar || !sentinel) return;
+  let top = 0;
+  const measure = () => {
+    const pinned = ['sticky', 'fixed'].includes(getComputedStyle(header).position);
+    top = pinned ? Math.round(header.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--pages-sticky-top', `${top}px`);
+    update();
+  };
+  let frame = 0;
+  function update() {
+    frame = 0;
+    const stuck = getComputedStyle(toolbar).position === 'sticky'
+      && sentinel.getBoundingClientRect().top < top;
+    toolbar.classList.toggle('is-stuck', stuck);
+  }
+  if ('ResizeObserver' in window) new ResizeObserver(measure).observe(header);
+  window.addEventListener('resize', measure);
+  window.addEventListener('scroll', () => { if (!frame) frame = requestAnimationFrame(update); }, { passive: true });
+  measure();
+}
+
+// Typing in the pinned bar keeps the start of the list in view.
+function revealListTop() {
+  const toolbar = document.getElementById('prof-toolbar');
+  const sentinel = document.querySelector('.toolbar-sentinel');
+  if (!toolbar?.classList.contains('is-stuck') || !sentinel) return;
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pages-sticky-top')) || 0;
+  window.scrollTo({ top: sentinel.getBoundingClientRect().top + window.scrollY - top });
+}
+
+// Phones: a placeholder that fits beside the sort menu.
+const phone = window.matchMedia('(max-width: 720px)');
+const fullPlaceholder = filterInput.placeholder;
+const fitPlaceholder = () => { filterInput.placeholder = phone.matches ? 'Name or subject' : fullPlaceholder; };
+phone.addEventListener('change', fitPlaceholder);
+fitPlaceholder();
+
+filterInput.addEventListener('input', () => { renderList(); revealListTop(); });
+sortSelect.addEventListener('change', () => { renderList(); revealListTop(); });
+bindStickyToolbar();
 
 renderHero();
 loadProfessors();

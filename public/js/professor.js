@@ -5,6 +5,12 @@ import {
 import { SCHOOLS } from './schools.js';
 
 const MAX_LENGTH = 5000;
+// Shown only on phones and tablets (pages.css hides it on the desktop layout).
+const EXTERNAL_ICON = '<svg class="prof-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>';
+const PENCIL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+// Phones and tablets: the review form lives in a sheet instead of the page. Must match pages.css.
+const sheetMode = window.matchMedia('(max-width: 1099px)');
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Same limits as REMOVAL_MESSAGE_MAX and REMOVAL_CONTACT_MAX in app.py.
 const REMOVAL_MESSAGE_MAX = 1000;
 const REMOVAL_CONTACT_MAX = 200;
@@ -98,6 +104,7 @@ function watchApproval() {
         saveAwaiting(null);
         forgetProfessors();
         render();
+        closeSheet();
         announce('Your review is now published.');
         return;
       }
@@ -141,7 +148,7 @@ function renderProfile(p) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
           <span>Share</span>
         </button>
-        ${profile ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(profile)}" target="_blank" rel="noopener">Official faculty page<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
+        ${profile ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(profile)}" target="_blank" rel="noopener">${EXTERNAL_ICON}Official faculty page<span class="visually-hidden"> (opens in a new tab)</span></a>` : ''}
       </div>
     </section>`;
 }
@@ -163,7 +170,7 @@ function renderSummary(p) {
     return `
       <li>
         <span aria-hidden="true">${n}</span>
-        <span class="dist-bar" aria-hidden="true"><span style="width:${(c / max) * 100}%"></span></span>
+        <span class="dist-bar" aria-hidden="true"><span style="width:${(c / max) * 100}%;--pct:${(c / max) * 100}%"></span></span>
         <span class="dist-count" aria-hidden="true">${c}</span>
         <span class="visually-hidden">${plural(c, 'review')} rated ${n}</span>
       </li>`;
@@ -200,7 +207,7 @@ function tagChip(tag, count) {
 function renderInsights(p) {
   const items = [];
   if (p.would_take_again_pct != null) {
-    items.push(`<div class="stat">
+    items.push(`<div class="stat stat-insight">
       <p class="stat-label">Would take again</p>
       <p class="stat-value">${p.would_take_again_pct}%</p>
       <div class="meter" aria-hidden="true"><span style="width:${p.would_take_again_pct}%"></span></div>
@@ -208,7 +215,7 @@ function renderInsights(p) {
   }
   if (p.avg_difficulty != null) {
     const value = formatScore(p.avg_difficulty);
-    items.push(`<div class="stat">
+    items.push(`<div class="stat stat-insight">
       <p class="stat-label">Difficulty</p>
       <p class="stat-value">${value}<small aria-hidden="true">/5</small><span class="visually-hidden"> out of 5</span></p>
       <div class="meter" aria-hidden="true"><span style="width:${(p.avg_difficulty / 5) * 100}%"></span></div>
@@ -241,6 +248,7 @@ function renderSent() {
     <section class="card review-form" id="review-form" aria-labelledby="form-title">
       <h2 id="form-title">Review sent</h2>
       <p class="status success" id="form-status" tabindex="-1">${AWAITING_MESSAGE}</p>
+      <button type="button" class="btn btn-ghost btn-block review-sheet-done" data-sheet-close>Done</button>
     </section>`;
 }
 
@@ -348,9 +356,28 @@ function renderReviewItems(reviews, sort) {
   }).join('');
 }
 
+// Phones and tablets: sort as a segmented control in a bar that sticks under the header.
+function renderReviewsBar(p) {
+  if (p.reviews.length <= 1) return '';
+  const sorts = [['newest', 'Newest'], ['high', 'Highest'], ['low', 'Lowest']];
+  return `
+      <div class="reviews-bar-sentinel" aria-hidden="true"></div>
+      <div class="reviews-bar" id="reviews-bar">
+        <div class="segmented" role="radiogroup" aria-label="Sort reviews">
+          ${sorts.map(([value, label]) => `<label class="segment"><input type="radio" name="review-sort-bar" value="${value}"${value === 'newest' ? ' checked' : ''}><span>${label}</span></label>`).join('')}
+        </div>
+        ${p.courses.length > 1 ? `<label class="reviews-bar-course"><span class="visually-hidden">Course</span>
+          <select class="select" id="review-course-bar">
+            <option value="">All courses</option>
+            ${p.courses.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+          </select>
+        </label>` : ''}
+      </div>`;
+}
+
 function renderReviews(p) {
   return `
-    <section aria-labelledby="reviews-title">
+    <section class="reviews" aria-labelledby="reviews-title">
       <div class="reviews-head">
         <h2 id="reviews-title" tabindex="-1">Student reviews <span class="prof-title">(${p.reviews.length})</span></h2>
         ${p.reviews.length > 1 ? `<div class="reviews-controls">
@@ -369,6 +396,7 @@ function renderReviews(p) {
           </label>
         </div>` : ''}
       </div>
+      ${renderReviewsBar(p)}
       <ul class="review-list" id="review-list">${renderReviewItems(p.reviews, 'newest')}</ul>
     </section>`;
 }
@@ -469,7 +497,8 @@ function bindRemoval() {
   });
 }
 
-// Phones: a "Write a review" bar stays at the bottom until the form itself is on screen.
+// Phones: a floating "Write a review" button stays at the bottom (above the tab bar) and opens
+// the sheet. Wider screens without the sheet keep the old rule: hidden once the form is on screen.
 let ctaObserver = null;
 function bindMobileCta() {
   let bar = document.getElementById('mobile-cta');
@@ -477,18 +506,340 @@ function bindMobileCta() {
     bar = document.createElement('div');
     bar.id = 'mobile-cta';
     bar.className = 'mobile-cta';
-    bar.innerHTML = '<a class="btn btn-primary btn-block" href="#review-form">Write a review</a>';
+    bar.innerHTML = `<a class="btn btn-primary btn-block" href="#review-form">${PENCIL_ICON}<span>Write a review</span></a>`;
     document.body.append(bar);
   }
   const form = document.getElementById('review-form');
   ctaObserver?.disconnect();
   // Already sent one: nothing more to write here today.
   bar.classList.toggle('is-hidden', Boolean(awaitingReview));
-  if (awaitingReview || !form || !('IntersectionObserver' in window)) return;
+  if (awaitingReview || !('IntersectionObserver' in window)) return;
+  if (sheetMode.matches) {
+    // The form is in the sheet; just step aside while the faculty removal form is open on screen.
+    const removal = document.getElementById('removal-form');
+    if (!removal) return;
+    ctaObserver = new IntersectionObserver(([entry]) => bar.classList.toggle('is-hidden', entry.isIntersecting));
+    ctaObserver.observe(removal);
+    return;
+  }
+  if (!form) return;
   ctaObserver = new IntersectionObserver(([entry]) => {
     bar.classList.toggle('is-hidden', entry.isIntersecting || entry.boundingClientRect.top < 0);
   });
   ctaObserver.observe(form);
+}
+
+// ---------- Review sheet (phones and tablets) ----------
+// A modal <dialog>: focus stays inside, Escape and the backdrop close it, and on phones it can be
+// dragged down by its top bar (or by the content once it is scrolled to the top).
+
+let sheet = null;
+let sheetOpener = null;
+
+function getSheet() {
+  if (sheet) return sheet;
+  sheet = document.createElement('dialog');
+  sheet.id = 'review-sheet';
+  sheet.className = 'review-sheet';
+  sheet.setAttribute('aria-labelledby', 'form-title');
+  sheet.innerHTML = `
+    <div class="review-sheet-top">
+      <span class="review-sheet-grabber" aria-hidden="true"></span>
+      <button type="button" class="review-sheet-close" data-sheet-close aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="review-sheet-body" tabindex="-1"></div>`;
+  document.body.append(sheet);
+
+  sheet.addEventListener('click', event => {
+    if (event.target.closest('[data-sheet-close]')) { closeSheet(); return; }
+    // Clicks on the backdrop reach the dialog element itself, from outside its box.
+    if (event.target !== sheet) return;
+    const box = sheet.getBoundingClientRect();
+    const outside = event.clientX < box.left || event.clientX > box.right
+      || event.clientY < box.top || event.clientY > box.bottom;
+    if (outside) closeSheet();
+  });
+  sheet.addEventListener('cancel', event => {
+    // Escape: play the closing animation instead of vanishing.
+    event.preventDefault();
+    closeSheet();
+  });
+  sheet.addEventListener('close', () => {
+    sheet.classList.remove('is-closing', 'is-dragging');
+    sheet.style.removeProperty('transform');
+    document.documentElement.classList.remove('review-sheet-open');
+    stopViewportTracking();
+    const opener = sheetOpener;
+    sheetOpener = null;
+    const visible = el => el && el.isConnected
+      && (el.checkVisibility ? el.checkVisibility({ visibilityProperty: true }) : el.offsetParent !== null);
+    if (visible(opener)) {
+      opener.focus({ preventScroll: true });
+      return;
+    }
+    // The button that opened it is gone (e.g. hidden once the review was sent): land on the
+    // reviews, where the visitor's own review now waits at the top.
+    const heading = document.getElementById('reviews-title');
+    if (heading) {
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+    }
+  });
+  bindSheetDrag();
+  return sheet;
+}
+
+function isSheetOpen() {
+  return Boolean(sheet && sheet.open);
+}
+
+function openSheet(opener) {
+  const dialog = getSheet();
+  placeForm();
+  if (dialog.open) return;
+  sheetOpener = opener || document.activeElement;
+  dialog.classList.remove('is-closing');
+  dialog.style.removeProperty('transform');
+  document.documentElement.classList.add('review-sheet-open');
+  dialog.showModal();
+  const body = dialog.querySelector('.review-sheet-body');
+  body.scrollTop = 0;
+  body.focus({ preventScroll: true });
+  startViewportTracking();
+}
+
+function closeSheet(immediate = false) {
+  if (!isSheetOpen() || sheet.classList.contains('is-closing')) return;
+  if (immediate || reducedMotion.matches) { sheet.close(); return; }
+  sheet.classList.remove('is-dragging');
+  sheet.classList.add('is-closing');
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    if (sheet.open) sheet.close();
+  };
+  sheet.addEventListener('transitionend', event => { if (event.target === sheet) finish(); }, { once: true });
+  setTimeout(finish, 400);
+}
+
+// Drag down to dismiss (phones). Starts on the top bar, or anywhere once the content is at the top.
+function bindSheetDrag() {
+  const body = sheet.querySelector('.review-sheet-body');
+  let startY = 0;
+  let startTime = 0;
+  let offset = 0;
+  let tracking = false;
+  let dragging = false;
+
+  sheet.addEventListener('touchstart', event => {
+    if (event.touches.length !== 1 || !window.matchMedia('(max-width: 720px)').matches) return;
+    const fromTop = Boolean(event.target.closest('.review-sheet-top'));
+    // Text fields scroll and select text by dragging: leave them alone.
+    if (!fromTop && event.target.closest('textarea, input:not([type="radio"]):not([type="checkbox"]), select')) return;
+    tracking = fromTop || body.scrollTop <= 0;
+    dragging = false;
+    offset = 0;
+    startY = event.touches[0].clientY;
+    startTime = event.timeStamp;
+  }, { passive: true });
+
+  sheet.addEventListener('touchmove', event => {
+    if (!tracking) return;
+    const dy = event.touches[0].clientY - startY;
+    if (!dragging) {
+      // Scrolling up through the content is a normal scroll, not a drag.
+      if (dy <= 4 || (body.scrollTop > 0 && !event.target.closest('.review-sheet-top'))) {
+        if (dy < -4) tracking = false;
+        return;
+      }
+      dragging = true;
+      sheet.classList.add('is-dragging');
+    }
+    event.preventDefault();
+    offset = Math.max(0, dy - 4);
+    sheet.style.transform = `translateY(${offset}px)`;
+  }, { passive: false });
+
+  const end = event => {
+    if (!tracking) return;
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    sheet.classList.remove('is-dragging');
+    const speed = offset / Math.max(1, event.timeStamp - startTime);
+    if (offset > Math.min(160, sheet.offsetHeight * 0.3) || (speed > 0.6 && offset > 40)) {
+      closeSheet();
+    } else {
+      sheet.style.removeProperty('transform');
+    }
+  };
+  sheet.addEventListener('touchend', end);
+  sheet.addEventListener('touchcancel', end);
+}
+
+// iOS keeps the layout viewport when the keyboard opens; keep the sheet above the keyboard.
+let viewportHandler = null;
+function startViewportTracking() {
+  const vv = window.visualViewport;
+  if (!vv || viewportHandler) return;
+  viewportHandler = () => {
+    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    sheet.style.setProperty('--review-sheet-keyboard', `${keyboard > 80 ? keyboard : 0}px`);
+    sheet.style.setProperty('--review-sheet-viewport', `${vv.height}px`);
+  };
+  vv.addEventListener('resize', viewportHandler);
+  vv.addEventListener('scroll', viewportHandler);
+  viewportHandler();
+}
+function stopViewportTracking() {
+  const vv = window.visualViewport;
+  if (!vv || !viewportHandler) return;
+  vv.removeEventListener('resize', viewportHandler);
+  vv.removeEventListener('scroll', viewportHandler);
+  viewportHandler = null;
+  sheet.style.removeProperty('--review-sheet-keyboard');
+  sheet.style.removeProperty('--review-sheet-viewport');
+}
+
+// The form section sits in the sheet on phones and tablets and in the page on the desktop layout.
+function placeForm() {
+  const section = document.getElementById('review-form');
+  if (!section) return;
+  if (sheetMode.matches) {
+    const body = getSheet().querySelector('.review-sheet-body');
+    if (section.parentElement !== body) body.replaceChildren(section);
+  } else {
+    if (isSheetOpen()) sheet.close();
+    const columns = root.querySelector('.prof-columns');
+    if (columns && section.parentElement !== columns) columns.append(section);
+  }
+}
+
+sheetMode.addEventListener('change', () => {
+  if (!professor) return;
+  placeForm();
+  bindMobileCta();
+});
+
+// Every "Write a review" link opens the sheet when there is one.
+document.addEventListener('click', event => {
+  const trigger = event.target.closest('a[href="#review-form"], [data-open-review]');
+  if (!trigger || !professor || !sheetMode.matches) return;
+  event.preventDefault();
+  openSheet(trigger);
+});
+
+// The tab bar's Rate button reviews this professor rather than searching for one.
+document.addEventListener('profscope:rate', event => {
+  if (!professor || !sheetMode.matches) return;
+  event.preventDefault();
+  openSheet(event.detail.opener);
+});
+
+// Sticky bars sit right under the site header, whatever height it has on this screen.
+function trackHeader() {
+  const header = document.querySelector('.site-header');
+  if (!header) return;
+  const update = () => {
+    const pinned = ['sticky', 'fixed'].includes(getComputedStyle(header).position);
+    const height = pinned ? Math.round(header.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--pages-sticky-top', `${height}px`);
+  };
+  if ('ResizeObserver' in window) new ResizeObserver(update).observe(header);
+  window.addEventListener('resize', update);
+  update();
+}
+trackHeader();
+
+function stickyTop() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pages-sticky-top')) || 0;
+}
+
+// Phones: the summary cards swipe sideways; the dots below show which one is in view.
+function bindCarousel() {
+  const track = root.querySelector('.summary');
+  const dots = root.querySelector('.summary-dots');
+  if (!track || !dots) return;
+  const cards = [...track.querySelectorAll(':scope > .stat')];
+  if (cards.length < 2) { dots.hidden = true; return; }
+  dots.innerHTML = cards.map(() => '<span></span>').join('');
+  const marks = [...dots.children];
+  let frame = 0;
+  const update = () => {
+    frame = 0;
+    const start = track.getBoundingClientRect().left + parseFloat(getComputedStyle(track).paddingLeft || '0');
+    let active = 0;
+    let best = Infinity;
+    cards.forEach((card, i) => {
+      const distance = Math.abs(card.getBoundingClientRect().left - start);
+      if (distance < best) { best = distance; active = i; }
+    });
+    if (track.scrollLeft + track.clientWidth >= track.scrollWidth - 2) active = cards.length - 1;
+    marks.forEach((mark, i) => mark.classList.toggle('is-active', i === active));
+  };
+  track.addEventListener('scroll', () => { if (!frame) frame = requestAnimationFrame(update); }, { passive: true });
+  update();
+}
+
+// The sort bar gets a hairline once it is pinned under the header.
+let stuckHandler = null;
+function bindStuckBar() {
+  if (stuckHandler) window.removeEventListener('scroll', stuckHandler);
+  stuckHandler = null;
+  const bar = document.getElementById('reviews-bar');
+  if (!bar) return;
+  let frame = 0;
+  const update = () => {
+    frame = 0;
+    if (!bar.isConnected) return;
+    const pinned = getComputedStyle(bar).position === 'sticky'
+      && bar.getBoundingClientRect().top <= stickyTop() + 1
+      && root.querySelector('.reviews-bar-sentinel').getBoundingClientRect().top < stickyTop();
+    bar.classList.toggle('is-stuck', pinned);
+  };
+  stuckHandler = () => { if (!frame) frame = requestAnimationFrame(update); };
+  window.addEventListener('scroll', stuckHandler, { passive: true });
+  update();
+}
+
+function bindSortControls() {
+  const select = document.getElementById('review-sort');
+  const course = document.getElementById('review-course');
+  const bar = document.getElementById('reviews-bar');
+  const barCourse = document.getElementById('review-course-bar');
+
+  const showList = () => {
+    document.getElementById('review-list').innerHTML = renderReviewItems(visibleReviews(), sortOrder);
+    // From the pinned bar, start the new order at its top rather than somewhere in the middle.
+    if (bar?.classList.contains('is-stuck')) {
+      const sentinel = root.querySelector('.reviews-bar-sentinel');
+      window.scrollTo({ top: sentinel.getBoundingClientRect().top + window.scrollY - stickyTop() });
+    }
+  };
+  const setSort = value => {
+    sortOrder = SORTS[value] ? value : 'newest';
+    if (select) select.value = sortOrder;
+    bar?.querySelectorAll('input[name="review-sort-bar"]').forEach(input => { input.checked = input.value === sortOrder; });
+    showList();
+    announce(`Reviews sorted, ${SORT_LABELS[sortOrder]}.`);
+  };
+  const setCourse = value => {
+    courseFilter = value;
+    if (course) course.value = value;
+    if (barCourse) barCourse.value = value;
+    showList();
+    const n = visibleReviews().length;
+    announce(courseFilter ? `Showing ${plural(n, 'review')} for ${courseFilter}.` : `Showing all ${plural(n, 'review')}.`);
+  };
+  select?.addEventListener('change', event => setSort(event.target.value));
+  course?.addEventListener('change', event => setCourse(event.target.value));
+  barCourse?.addEventListener('change', event => setCourse(event.target.value));
+  bar?.addEventListener('change', event => {
+    if (event.target.name === 'review-sort-bar') setSort(event.target.value);
+  });
 }
 
 function render() {
@@ -501,34 +852,29 @@ function render() {
 
   root.innerHTML = `
     ${renderProfile(p)}
-    <div class="summary-band">${renderSummary(p)}</div>
+    <div class="summary-band">
+      ${renderSummary(p)}
+      <div class="summary-dots" aria-hidden="true"></div>
+      ${awaitingReview ? '' : `<button type="button" class="btn btn-primary btn-block side-cta" data-open-review>${PENCIL_ICON}<span>Write a review</span></button>`}
+    </div>
     <div class="prof-columns">
       ${renderReviews(p)}
       ${renderForm(p)}
     </div>
     ${renderRemoval(p)}`;
   root.removeAttribute('aria-busy');
+  root.classList.add('has-profile');
   sortOrder = 'newest';
   courseFilter = '';
   if (!awaitingReview) bindForm();
   bindReports();
   bindRemoval();
   bindShare();
+  placeForm();
   bindMobileCta();
-  const showList = () => {
-    document.getElementById('review-list').innerHTML = renderReviewItems(visibleReviews(), sortOrder);
-  };
-  document.getElementById('review-sort')?.addEventListener('change', event => {
-    sortOrder = event.target.value;
-    showList();
-    announce(`Reviews sorted, ${SORT_LABELS[sortOrder]}.`);
-  });
-  document.getElementById('review-course')?.addEventListener('change', event => {
-    courseFilter = event.target.value;
-    showList();
-    const n = visibleReviews().length;
-    announce(courseFilter ? `Showing ${plural(n, 'review')} for ${courseFilter}.` : `Showing all ${plural(n, 'review')}.`);
-  });
+  bindSortControls();
+  bindCarousel();
+  bindStuckBar();
 }
 
 function bindShare() {
@@ -636,7 +982,8 @@ function submitErrorMessage(err) {
 }
 
 function bindForm() {
-  const form = root.querySelector('#review-form form');
+  // Looked up by id: on phones and tablets the form lives in the sheet, outside #professor.
+  const form = document.querySelector('#review-form form');
   const textarea = form.querySelector('#review-text');
   const counter = form.querySelector('#char-count');
   const status = form.querySelector('#form-status');
@@ -761,6 +1108,10 @@ function bindForm() {
       return;
     }
     render();
+    // Published at once: leave the sheet so the review can be seen in the list (focus goes to
+    // the reviews heading below, not back to the button that opened the sheet).
+    sheetOpener = null;
+    closeSheet(true);
     const heading = document.getElementById('reviews-title');
     heading.scrollIntoView({ block: 'start' });
     heading.focus({ preventScroll: true });

@@ -1,5 +1,7 @@
 // Shared helpers and components for ProfScope pages.
 
+import { SCHOOLS, schoolArtAttrs, schoolIcon } from './schools.js';
+
 export function escapeHtml(value) {
   if (value == null) return '';
   return String(value)
@@ -220,11 +222,41 @@ export function debounce(fn, ms) {
   };
 }
 
+// ---------- Recent searches ----------
+// Professors opened from any search box, newest first; shown on the phone search screen.
+
+const RECENT_KEY = 'ada-ratings:recent-search';
+const RECENT_MAX = 6;
+
+export function recentSearches() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    if (!Array.isArray(list)) return [];
+    // Only same-site paths are ever linked, whatever ended up in storage.
+    return list.filter(r => r && typeof r.name === 'string' && typeof r.url === 'string'
+      && r.url.startsWith('/') && !r.url.startsWith('//')).slice(0, RECENT_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function rememberSearch(p) {
+  if (!p || typeof p.url !== 'string') return;
+  const entry = { url: p.url, name: p.name, meta: [p.school, p.specialization || p.title].filter(Boolean).join(' · ') };
+  const list = [entry, ...recentSearches().filter(r => r.url !== p.url)].slice(0, RECENT_MAX);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* storage blocked */ }
+}
+
+export function clearRecentSearches() {
+  try { localStorage.removeItem(RECENT_KEY); } catch { /* storage blocked */ }
+}
+
 /**
  * Accessible professor search (ARIA 1.2 combobox): arrows move, Enter opens, Escape closes.
  * Expects a .search element holding an input.search-input and a ul.search-results.
+ * `limit` caps the list (the full-screen phone search shows more rows than a dropdown).
  */
-export function setupSearch(root) {
+export function setupSearch(root, { limit = 8 } = {}) {
   const input = root.querySelector('.search-input');
   const list = root.querySelector('.search-results');
   const live = root.querySelector('.search-live');
@@ -257,6 +289,7 @@ export function setupSearch(root) {
   }
 
   function go(p) {
+    rememberSearch(p);
     window.location.href = p.url;
   }
 
@@ -271,7 +304,7 @@ export function setupSearch(root) {
       p.name.toLowerCase().includes(query) ||
       (p.specialization || '').toLowerCase().includes(query) ||
       (p.school || '').toLowerCase() === query
-    ).slice(0, 8);
+    ).slice(0, limit);
 
     const emptyText = {
       loading: 'Loading professors…',
@@ -340,6 +373,12 @@ export function setupSearch(root) {
     if (pick) go(pick);
     else input.focus();
   });
+
+  return {
+    input,
+    reset() { input.value = ''; close(); if (live) live.textContent = ''; },
+    refresh() { render(); },
+  };
 }
 
 // ---------- Theme switch ----------
@@ -444,6 +483,11 @@ document.querySelectorAll('.nav-menu-button').forEach(setupNavMenu);
 // "Rate a professor": on the home page it brings the big search into view and focuses it;
 // elsewhere the link opens the home page at the search.
 export function focusHeroSearch() {
+  // Phones get the full-screen search instead, with a prompt to pick someone to rate.
+  if (SHELL_ENABLED && phoneQuery.matches) {
+    openSearchScreen({ mode: 'rate' });
+    return true;
+  }
   const input = document.getElementById('hero-search');
   if (!input) return false;
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -464,6 +508,384 @@ if (siteHeader) {
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 }
+// ---------- App shell for phones and tablets ----------
+// Phones (up to 720px) get an iOS-style tab bar, a full-screen search and a schools sheet;
+// tablets keep the top navigation and open the same search as a centred panel.
+// Desktop is untouched: none of this is visible above 1099px.
+
+const SHELL_ENABLED = window.location.pathname !== '/admin.html';
+const phoneQuery = window.matchMedia('(max-width: 720px)');
+const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+const ICONS = {
+  home: '<path d="M3.5 10.2 12 3.5l8.5 6.7"/><path d="M5.5 8.8V20h4.8v-5.6h3.4V20h4.8V8.8"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  schools: '<path d="M3 9.2 12 4l9 5.2"/><path d="M5.5 10v7.5M10 10v7.5M14 10v7.5M18.5 10v7.5"/><path d="M3 20.5h18"/>',
+  rate: '<path d="M12 3.6l2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.5l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7z"/>',
+  chevron: '<path d="m9 5.5 6.5 6.5L9 18.5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+};
+
+function icon(name, className = '') {
+  return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
+}
+
+// iPhones draw the page under the home bar only with viewport-fit=cover; shell.css pads for it.
+function coverViewport() {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && !/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
+}
+
+// Scrolling the page under an open sheet feels broken on a phone.
+function lockScroll(locked) {
+  document.documentElement.classList.toggle('shell-locked', locked);
+}
+
+// Dialogs slide out before they close; with reduced motion they simply close.
+function dismiss(dialog) {
+  if (!dialog.open || dialog.classList.contains('is-closing')) return;
+  let timer = null;
+  const finish = () => {
+    clearTimeout(timer);
+    dialog.removeEventListener('animationend', onEnd);
+    dialog.classList.remove('is-closing');
+    dialog.style.removeProperty('--drag');
+    if (dialog.open) dialog.close();
+  };
+  const onEnd = event => { if (event.target === dialog) finish(); };
+  if (reduceMotionQuery.matches) { finish(); return; }
+  dialog.classList.add('is-closing');
+  dialog.addEventListener('animationend', onEnd);
+  timer = setTimeout(finish, 450); // in case the animation never runs
+}
+
+function setupDialog(dialog, onClose) {
+  let returnFocus = null;
+  dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(dialog); });
+  // A tap on the dimmed backdrop closes the sheet (the backdrop belongs to the dialog itself).
+  dialog.addEventListener('click', event => { if (event.target === dialog) dismiss(dialog); });
+  dialog.addEventListener('close', () => {
+    lockScroll(false);
+    onClose?.();
+    const target = returnFocus;
+    returnFocus = null;
+    if (target && target.isConnected) target.focus({ preventScroll: true });
+  });
+  return {
+    open() {
+      if (dialog.open) return false;
+      returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.classList.remove('is-closing');
+      dialog.showModal();
+      lockScroll(true);
+      return true;
+    },
+  };
+}
+
+// ----- Full-screen search -----
+
+let searchScreen = null;
+
+function schoolChips() {
+  return Object.keys(SCHOOLS).map(code =>
+    `<li><a class="chip" href="${schoolUrl(code)}">${escapeHtml(code)}</a></li>`).join('');
+}
+
+function buildSearchScreen() {
+  const dialog = document.createElement('dialog');
+  dialog.id = 'search-screen';
+  dialog.className = 'search-screen';
+  dialog.setAttribute('aria-labelledby', 'ss-title');
+  dialog.innerHTML = `
+    <div class="ss-panel">
+      <h2 id="ss-title" class="visually-hidden">Search professors</h2>
+      <div class="ss-top">
+        <div class="ss-field">
+          ${icon('search', 'ss-field-icon')}
+          <label for="ss-input" class="visually-hidden">Search professors</label>
+          <input id="ss-input" class="search-input" type="search" placeholder="Professor or subject"
+            autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ss-results">
+        </div>
+        <button type="button" class="ss-cancel">Cancel</button>
+      </div>
+      <div class="ss-body">
+        <p class="ss-prompt" id="ss-prompt" hidden>${icon('rate')}<span>Find the professor you want to rate</span></p>
+        <ul id="ss-results" class="search-results ss-results" role="listbox" aria-label="Professors" hidden></ul>
+        <p class="search-live visually-hidden" aria-live="polite"></p>
+        <div class="ss-suggest">
+          <section class="ss-group" data-recent hidden aria-labelledby="ss-recent-title">
+            <div class="ss-group-head">
+              <h3 id="ss-recent-title">Recent</h3>
+              <button type="button" class="ss-clear">Clear</button>
+            </div>
+            <ul class="ss-list ss-recent"></ul>
+          </section>
+          <section class="ss-group" aria-labelledby="ss-schools-title">
+            <div class="ss-group-head"><h3 id="ss-schools-title">Browse a school</h3></div>
+            <ul class="ss-chips">${schoolChips()}</ul>
+          </section>
+        </div>
+      </div>
+    </div>`;
+  document.body.append(dialog);
+
+  const search = setupSearch(dialog, { limit: 30 });
+  const prompt = dialog.querySelector('.ss-prompt');
+  const recentGroup = dialog.querySelector('[data-recent]');
+  const recentList = dialog.querySelector('.ss-recent');
+
+  const renderRecent = () => {
+    const recent = recentSearches();
+    recentGroup.hidden = !recent.length;
+    recentList.innerHTML = recent.map(r => `
+      <li>
+        <a class="ss-row" href="${escapeHtml(r.url)}">
+          ${avatarImg(r, 'ss-avatar')}
+          <span class="ss-row-text">
+            <span class="ss-row-name">${escapeHtml(r.name)}</span>
+            ${r.meta ? `<span class="ss-row-meta">${escapeHtml(r.meta)}</span>` : ''}
+          </span>
+          ${icon('chevron', 'ss-chevron')}
+        </a>
+      </li>`).join('');
+  };
+
+  dialog.querySelector('.ss-cancel').addEventListener('click', () => dismiss(dialog));
+  dialog.querySelector('.ss-clear').addEventListener('click', () => {
+    clearRecentSearches();
+    renderRecent();
+    search.input.focus();
+  });
+  // Escape always leaves the screen (on the inline search it only closes the list).
+  dialog.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(dialog); }
+  }, true);
+  // Opening a recent professor moves it back to the top.
+  recentList.addEventListener('click', event => {
+    const link = event.target.closest('a');
+    const entry = link && recentSearches().find(r => r.url === link.getAttribute('href'));
+    if (entry) rememberSearch(entry);
+  });
+  // The keyboard goes away once the visitor starts scrolling the results, as in iOS.
+  dialog.querySelector('.ss-body').addEventListener('touchmove', () => {
+    if (document.activeElement === search.input) search.input.blur();
+  }, { passive: true });
+
+  const shell = setupDialog(dialog, () => {
+    search.reset();
+    setTabState(null);
+  });
+
+  return {
+    dialog,
+    open({ mode = 'search', query = '' } = {}) {
+      prompt.hidden = mode !== 'rate';
+      if (mode === 'rate') dialog.setAttribute('aria-describedby', 'ss-prompt');
+      else dialog.removeAttribute('aria-describedby');
+      renderRecent();
+      const opened = shell.open();
+      if (opened && query) search.input.value = query;
+      // Focus inside the same tap, so iOS shows the keyboard straight away.
+      search.input.focus();
+      if (query) search.refresh();
+      setTabState(mode);
+    },
+  };
+}
+
+export function openSearchScreen(options) {
+  if (!searchScreen) searchScreen = buildSearchScreen();
+  searchScreen.open(options);
+}
+
+// ----- Schools sheet -----
+
+let schoolsSheet = null;
+let schoolsData = null;
+
+function loadSchoolsData() {
+  schoolsData ||= api('/api/schools').catch(error => { schoolsData = null; throw error; });
+  return schoolsData;
+}
+
+/** An iOS Settings-style row: a small tile in the school's colours, the name, a count and a chevron. */
+export function schoolRow(school) {
+  const count = school.professor_count == null ? '' : plural(school.professor_count, 'professor');
+  return `
+    <li>
+      <a class="settings-row" href="${schoolUrl(school.code)}">
+        <span class="settings-icon school-art" ${schoolArtAttrs(school.code)}>${schoolIcon(school.code)}</span>
+        <span class="settings-text">
+          <span class="settings-title">${escapeHtml(school.name)}</span>
+          <span class="settings-sub">${count || '&nbsp;'}</span>
+        </span>
+        ${icon('chevron', 'settings-chevron')}
+      </a>
+    </li>`;
+}
+
+// Swipe the sheet down to close it, as in iOS.
+function dragToDismiss(dialog, handle) {
+  let startY = null;
+  let delta = 0;
+  handle.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' || event.target.closest('button')) return;
+    startY = event.clientY;
+    delta = 0;
+    handle.setPointerCapture(event.pointerId);
+    dialog.classList.add('is-dragging');
+  });
+  handle.addEventListener('pointermove', event => {
+    if (startY == null) return;
+    delta = Math.max(0, event.clientY - startY);
+    dialog.style.setProperty('--drag', `${delta}px`);
+  });
+  const end = () => {
+    if (startY == null) return;
+    startY = null;
+    dialog.classList.remove('is-dragging');
+    if (delta > 90) dismiss(dialog);
+    else dialog.style.removeProperty('--drag');
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
+
+function buildSchoolsSheet() {
+  const dialog = document.createElement('dialog');
+  dialog.id = 'schools-sheet';
+  dialog.className = 'sheet';
+  dialog.setAttribute('aria-labelledby', 'schools-sheet-title');
+  dialog.innerHTML = `
+    <div class="sheet-head">
+      <span class="sheet-grabber" aria-hidden="true"></span>
+      <h2 id="schools-sheet-title">Schools</h2>
+      <button type="button" class="sheet-done">Done</button>
+    </div>
+    <div class="sheet-body">
+      <ul class="settings-list"></ul>
+    </div>`;
+  document.body.append(dialog);
+  const list = dialog.querySelector('.settings-list');
+  const staticRows = Object.entries(SCHOOLS).map(([code, s]) => ({ code, name: s.name, professor_count: null }));
+  list.innerHTML = staticRows.map(schoolRow).join('');
+  dialog.querySelector('.sheet-done').addEventListener('click', () => dismiss(dialog));
+  dragToDismiss(dialog, dialog.querySelector('.sheet-head'));
+  const shell = setupDialog(dialog, () => setTabState(null));
+
+  return {
+    open() {
+      shell.open();
+      dialog.querySelector('.sheet-done').focus();
+      setTabState('schools');
+      loadSchoolsData().then(schools => {
+        // The site's own order first, then anything new from the server.
+        const known = Object.keys(SCHOOLS);
+        const ordered = [...schools].sort((a, b) =>
+          (known.indexOf(a.code) + 1 || 99) - (known.indexOf(b.code) + 1 || 99));
+        list.innerHTML = ordered.map(schoolRow).join('');
+      }).catch(() => { /* names alone still work as links */ });
+    },
+  };
+}
+
+function openSchoolsSheet() {
+  if (!schoolsSheet) schoolsSheet = buildSchoolsSheet();
+  schoolsSheet.open();
+}
+
+// ----- Tab bar -----
+
+let tabbar = null;
+
+function setTabState(open) {
+  if (!tabbar) return;
+  tabbar.querySelectorAll('button[data-tab]').forEach(button => {
+    button.setAttribute('aria-expanded', String(button.dataset.tab === open));
+  });
+}
+
+function buildTabbar() {
+  const path = window.location.pathname;
+  const current = path === '/' ? 'home' : path.startsWith('/school/') ? 'schools' : '';
+  const nav = document.createElement('nav');
+  nav.className = 'tabbar';
+  nav.setAttribute('aria-label', 'Tabs');
+  const item = (tab, label, attrs) => `
+    ${attrs.href ? `<a href="${attrs.href}"` : '<button type="button" aria-haspopup="dialog" aria-expanded="false"'}
+      class="tabbar-item" data-tab="${tab}"${current === tab ? ' aria-current="page"' : ''}>
+      ${icon(tab, 'tabbar-icon')}<span class="tabbar-label">${label}</span>
+    ${attrs.href ? '</a>' : '</button>'}`;
+  nav.innerHTML = [
+    item('home', 'Home', { href: '/' }),
+    item('search', 'Search', {}),
+    item('schools', 'Schools', {}),
+    item('rate', 'Rate', {}),
+  ].join('');
+  nav.addEventListener('click', event => {
+    const button = event.target.closest('button[data-tab]');
+    if (!button) return;
+    if (button.dataset.tab === 'search') openSearchScreen({ mode: 'search' });
+    else if (button.dataset.tab === 'rate') {
+      // A page with its own review form (a professor page) can take the tap and open that form instead.
+      const rate = new CustomEvent('profscope:rate', { cancelable: true, detail: { opener: button } });
+      if (document.dispatchEvent(rate)) openSearchScreen({ mode: 'rate' });
+    }
+    else if (button.dataset.tab === 'schools') openSchoolsSheet();
+  });
+  // Home from the home page scrolls back to the top, like tapping the current tab in iOS.
+  nav.querySelector('a[data-tab="home"]').addEventListener('click', event => {
+    if (path !== '/') return;
+    event.preventDefault();
+    window.scrollTo({ top: 0, behavior: reduceMotionQuery.matches ? 'auto' : 'smooth' });
+  });
+  document.body.append(nav);
+  return nav;
+}
+
+// Tablets: the header search becomes a button that opens the search panel (the field
+// itself would leave no room for the navigation at iPad widths).
+function addHeaderSearchButton() {
+  const field = document.querySelector('.site-header .search');
+  if (!field) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'header-search-btn';
+  button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-label', 'Search professors');
+  button.innerHTML = `${icon('search')}<span aria-hidden="true">Search</span>`;
+  button.addEventListener('click', () => openSearchScreen({ mode: 'search' }));
+  // Inside .header-actions, so the desktop rule `.search + .header-actions` still applies.
+  const actions = document.querySelector('.site-header .header-actions');
+  if (actions) actions.prepend(button);
+  else field.after(button);
+}
+
+// Phones: tapping the big home search opens the full-screen search. Keyboard users who tab
+// into it keep the inline search, so closing the screen never traps them in a loop.
+function bindHeroSearch() {
+  const hero = document.getElementById('hero-search');
+  if (!hero) return;
+  hero.addEventListener('pointerdown', event => { if (phoneQuery.matches) event.preventDefault(); });
+  hero.addEventListener('click', event => {
+    if (!phoneQuery.matches) return;
+    event.preventDefault();
+    const query = hero.value;
+    hero.blur();
+    openSearchScreen({ mode: 'search', query });
+  });
+}
+
+function setupAppShell() {
+  if (!SHELL_ENABLED) return;
+  coverViewport();
+  tabbar = buildTabbar();
+  addHeaderSearchButton();
+  bindHeroSearch();
+}
+
 // ---------- Rules screen ----------
 // Every visitor agrees to the review rules once (per rules version) before using the site.
 // The server checks the same cookie before it accepts a review or a report.
@@ -535,5 +957,6 @@ export function openRulesGate() {
 const UNGATED_PAGES = ['/rules.html', '/terms.html', '/privacy.html', '/blocked.html', '/admin.html'];
 if (!UNGATED_PAGES.includes(window.location.pathname) && !hasAcceptedRules()) openRulesGate();
 
-document.querySelectorAll('.search').forEach(setupSearch);
+document.querySelectorAll('.search').forEach(root => setupSearch(root));
+setupAppShell();
 document.querySelectorAll('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });

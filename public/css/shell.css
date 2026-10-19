@@ -1,1 +1,625 @@
-/* Phone and tablet app shell: tab bar, search screen, compact home, tablet navigation. */
+/* Phone and tablet app shell: tab bar, search screen, compact home, tablet navigation.
+   Loaded after style.css on every page. Breakpoints:
+     phone   ≤ 720px     tab bar, full-screen search, schools sheet, compact home
+     tablet  721–1099px  top navigation (no hamburger), search panel, roomier grids
+     desktop ≥ 1100px    exactly style.css; nothing here changes it.
+   --tabbar-h is the height of the phone tab bar including the home-bar inset (0px when there
+   is no tab bar). Anything fixed to the bottom of the screen should sit at bottom: var(--tabbar-h). */
+
+:root { --tabbar-h: 0px; }
+
+/* Pages are drawn under the iPhone home bar and beside the notch (viewport-fit=cover),
+   so content keeps clear of both. On desktop env() is 0 and this equals style.css. */
+.container {
+  padding-left: max(var(--gutter), env(safe-area-inset-left));
+  padding-right: max(var(--gutter), env(safe-area-inset-right));
+}
+
+/* Shell pieces that only exist at some widths. */
+.tabbar, .header-search-btn, .school-chevron { display: none; }
+
+html.shell-locked { overflow: hidden; }
+
+/* ---------- Tab bar (phones) ---------- */
+
+.tabbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 45;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  height: var(--tabbar-h);
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--header-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid var(--line-strong);
+}
+.tabbar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1px;
+  min-width: 0;
+  min-height: 49px;
+  padding: 6px 2px 0;
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.tabbar-item:hover { text-decoration: none; }
+.tabbar-icon {
+  width: 27px; height: 27px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tabbar-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabbar-item[aria-current="page"], .tabbar-item[aria-expanded="true"] { color: var(--accent); }
+.tabbar-item[aria-current="page"] .tabbar-icon, .tabbar-item[aria-expanded="true"] .tabbar-icon { fill: var(--accent-soft); stroke-width: 2; }
+.tabbar-item[aria-current="page"] .tabbar-label { font-weight: 600; }
+.tabbar-item:active { opacity: 0.5; }
+.tabbar-item:focus-visible { outline-offset: -3px; }
+
+/* ---------- Header search button (tablets) ---------- */
+
+.header-search-btn {
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 15px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.header-search-btn:hover { border-color: var(--line-strong); }
+.header-search-btn svg { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+/* ---------- Dialog chrome shared by the search screen and the sheet ---------- */
+
+.search-screen, .sheet {
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  color: var(--text);
+  border: 0;
+  overscroll-behavior: contain;
+}
+.search-screen::backdrop, .sheet::backdrop {
+  background: rgba(0, 0, 0, 0.38);
+  animation: shell-fade-in var(--dur-base) ease;
+}
+.search-screen.is-closing::backdrop, .sheet.is-closing::backdrop { animation: shell-fade-out 0.28s ease forwards; }
+@keyframes shell-fade-in { from { opacity: 0; } }
+@keyframes shell-fade-out { to { opacity: 0; } }
+@keyframes shell-slide-up { from { transform: translateY(100%); } }
+@keyframes shell-slide-down { to { transform: translateY(100%); } }
+@keyframes shell-zoom-in { from { opacity: 0; transform: translateY(12px) scale(0.97); } }
+@keyframes shell-zoom-out { to { opacity: 0; transform: translateY(12px) scale(0.97); } }
+
+/* ---------- Search screen ---------- */
+
+.search-screen { background: var(--bg); }
+.search-screen[open] { animation: shell-slide-up 0.38s var(--ease); }
+.search-screen.is-closing { animation: shell-slide-down 0.3s var(--ease) forwards; }
+.ss-panel { display: flex; flex-direction: column; height: 100%; }
+.ss-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  border-bottom: 0.5px solid var(--line-strong);
+}
+.ss-field { position: relative; flex: 1; min-width: 0; }
+.ss-field-icon {
+  position: absolute;
+  left: 10px; top: 50%;
+  width: 18px; height: 18px;
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.ss-field .search-input {
+  height: 40px;
+  padding: 0 10px 0 36px;
+  font-size: 17px;
+  background: var(--surface-2);
+  border-radius: 12px;
+}
+.ss-field .search-input:focus { background: var(--surface-2); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ss-cancel {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 17px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ss-cancel:active { opacity: 0.5; }
+.ss-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px max(16px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.ss-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--gold-strong);
+  background: var(--gold-soft);
+  border-radius: 14px;
+}
+.ss-prompt[hidden] { display: none; }
+.ss-prompt svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+
+/* Results: big rows in the page itself, not a floating dropdown. */
+.search-screen .ss-results {
+  position: static;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+.ss-results .search-option {
+  position: relative;
+  gap: 14px;
+  min-height: 68px;
+  padding: 10px 8px;
+  border-radius: 14px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ss-results .search-option + .search-option::before,
+.ss-recent li + li .ss-row::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 8px; left: 70px;
+  border-top: 0.5px solid var(--line-strong);
+}
+.ss-results .search-option[aria-selected="true"]::before,
+.ss-results .search-option[aria-selected="true"] + .search-option::before { opacity: 0; }
+.ss-results .search-option img { width: 48px; height: 48px; }
+.ss-results .search-option-name { font-size: 17px; line-height: 1.3; }
+.ss-results .search-option-meta { font-size: 14px; }
+.ss-results .search-empty { padding: 28px 8px; text-align: center; }
+/* While there are results, the suggestions step aside. */
+.search-screen:has(.ss-results:not([hidden])) .ss-suggest { display: none; }
+
+.ss-group { margin-top: 14px; }
+.ss-group[hidden] { display: none; }
+.ss-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.ss-group h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.ss-clear {
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.ss-list { margin: 0; padding: 0; list-style: none; }
+.ss-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 8px;
+  color: var(--text);
+  border-radius: 14px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ss-row:hover { text-decoration: none; background: var(--surface-2); }
+.ss-avatar { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; }
+.ss-row-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ss-row-name { font-size: 16px; font-weight: 600; line-height: 1.3; }
+.ss-row-meta { overflow: hidden; font-size: 14px; color: var(--text-2); white-space: nowrap; text-overflow: ellipsis; }
+.ss-chevron, .settings-chevron, .school-chevron {
+  width: 16px; height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ss-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; padding: 0; list-style: none; }
+.ss-chips .chip { min-height: 40px; padding: 0 16px; font-size: 14px; background: var(--surface-2); border-color: transparent; }
+
+/* ---------- Schools sheet (phones) ---------- */
+
+.sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  width: 100%;
+  max-height: calc(100dvh - 40px - env(safe-area-inset-top));
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg-alt);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+  translate: 0 var(--drag, 0px);
+  transition: translate 0.25s var(--ease);
+}
+.sheet[open] { display: flex; flex-direction: column; animation: shell-slide-up 0.38s var(--ease); }
+.sheet.is-closing { animation: shell-slide-down 0.28s var(--ease) forwards; }
+.sheet.is-dragging { transition: none; }
+.sheet-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 58px;
+  padding: 14px 72px 6px;
+  touch-action: none;
+}
+.sheet-grabber {
+  position: absolute;
+  top: 6px; left: 50%;
+  width: 36px; height: 5px;
+  margin-left: -18px;
+  background: var(--line-strong);
+  border-radius: 3px;
+}
+.sheet-head h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.sheet-done {
+  position: absolute;
+  right: max(8px, env(safe-area-inset-right));
+  top: 50%;
+  min-width: 44px;
+  min-height: 44px;
+  margin-top: -18px;
+  padding: 0 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.sheet-done:active { opacity: 0.5; }
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px max(16px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+/* iOS Settings-style grouped list. */
+.settings-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: var(--surface);
+  border-radius: 14px;
+}
+.settings-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 8px 14px;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease);
+}
+.settings-row:hover { text-decoration: none; }
+.settings-list li + li .settings-row::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; left: 60px;
+  border-top: 0.5px solid var(--line-strong);
+}
+.settings-icon {
+  display: grid;
+  place-items: center;
+  width: 32px; height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.settings-icon .school-art-icon {
+  width: 20px; height: 20px;
+  padding: 0;
+  stroke-width: 1.8;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+.settings-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.settings-title { font-size: 16px; line-height: 1.3; }
+.settings-sub { font-size: 13px; line-height: 1.35; color: var(--text-2); }
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 720px) {
+  /* The moderation page has no tab bar and keeps its menu. */
+  :root:not(:has(script[src="/js/admin.js"])) { --tabbar-h: calc(50px + env(safe-area-inset-bottom)); }
+  :root, :root:has(.site-header .search) { --header-h: 52px; }
+  html { scroll-padding-bottom: calc(var(--tabbar-h) + 12px); }
+  body { padding-bottom: var(--tabbar-h); }
+  .tabbar { display: grid; }
+
+  /* A compact header: brand and theme switch. Search, Schools and Rate live in the tab bar. */
+  .site-header-inner { flex-wrap: nowrap; height: var(--header-h); min-height: 0; padding-block: 0; }
+  .site-header .search { display: none; }
+  :root:not(:has(script[src="/js/admin.js"])) .menu-toggle,
+  :root:not(:has(script[src="/js/admin.js"])) .mobile-nav { display: none !important; }
+  .brand { gap: 8px; }
+  .brand-mark { width: 28px; height: 28px; }
+  .brand-name { font-size: 18px; }
+
+  /* Bottom bars on other pages (the professor "Write a review" bar) stack above the tabs. */
+  .mobile-cta { bottom: var(--tabbar-h); padding-bottom: 10px; }
+  .site-footer { padding: 28px 0 24px; }
+  .site-footer nav[aria-labelledby="footer-schools"] { display: none; }
+  .footer-grid { gap: 18px; padding-bottom: 18px; }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .footer-links a { display: inline-flex; align-items: center; min-height: 32px; }
+  .footer-bottom { display: grid; gap: 6px; padding-top: 16px; }
+
+  /* Full-screen search. */
+  .search-screen { position: fixed; inset: 0; width: 100%; height: 100%; margin: 0; }
+
+  /* --- Home: hero --- */
+  .hero { padding: 18px 0 22px; text-align: left; }
+  .hero-bg { position: absolute; }
+  .aurora { animation: none; will-change: auto; }
+  .hero .eyebrow { display: none; }
+  .hero h1 { max-width: none; margin: 0 0 8px; font-size: clamp(2rem, 9vw, 2.5rem); line-height: 1.05; }
+  .hero-lead { max-width: none; margin: 0 0 16px; font-size: 16px; line-height: 1.4; }
+  .hero-lead-more { display: none; }
+  .search--hero { max-width: none; margin: 0; }
+  .search--hero .search-input { height: 50px; padding: 0 14px 0 46px; font-size: 17px; border-radius: 14px; cursor: pointer; }
+  .search--hero .search-icon { left: 16px; }
+  /* Schools scroll sideways in one row. */
+  .hero-chips {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 8px;
+    margin: 12px calc(-1 * var(--gutter)) 0;
+    padding: 2px var(--gutter);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: var(--gutter);
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .hero-chips::-webkit-scrollbar { display: none; }
+  .hero-chips li { flex-shrink: 0; scroll-snap-align: start; }
+  .hero-chips li:first-child { display: none; }
+  .hero .chip { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .hero-stats { justify-content: flex-start; margin-top: 14px; font-size: 13px; }
+  .hero-stats li { padding: 0 12px; }
+  .hero-stats li:first-child { padding-left: 0; }
+  .hero-visual { display: none; }
+
+  /* --- Home: sections --- */
+  .section { padding: 26px 0; }
+  .section-head { margin-bottom: 12px; }
+  .section-head--center { justify-content: flex-start; text-align: left; }
+  .section-head .section-kicker, .section-head p { display: none; }
+  .section-head h2 { font-size: 22px; letter-spacing: -0.025em; }
+
+  /* Schools: an iOS Settings-style list. */
+  .school-grid { display: block; overflow: hidden; background: var(--surface); border-radius: 14px; }
+  .school-grid > li { animation: none !important; }
+  .school-grid .skeleton-card { min-height: 58px; border-radius: 0; }
+  .school-grid .skeleton-card + .skeleton-card { border-top: 1px solid var(--bg-alt); }
+  .school-grid .state { border-radius: 0; }
+  .school-card {
+    position: relative;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    min-height: 58px;
+    padding: 8px 14px;
+    background: none;
+    border-radius: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .school-grid > li + li .school-card::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; left: 60px;
+    border-top: 0.5px solid var(--line-strong);
+  }
+  .school-card:hover { transform: none; box-shadow: none; }
+  .school-card-media.school-art {
+    display: grid;
+    place-items: center;
+    width: 32px; height: 32px;
+    flex-shrink: 0;
+    padding: 0;
+    aspect-ratio: auto;
+    border-radius: 8px;
+    container-type: normal;
+  }
+  .school-card-media .school-art-icon {
+    width: 20px; height: 20px;
+    padding: 0;
+    stroke-width: 1.8;
+    background: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .school-art-code, .school-meta-more, .school-arrow { display: none; }
+  .school-card-body { flex: 1; min-width: 0; gap: 0; padding: 0; }
+  .school-card h3 { font-size: 16px; font-weight: 400; line-height: 1.3; letter-spacing: -0.015em; }
+  .school-meta { margin: 0; padding: 0; font-size: 13px; line-height: 1.35; }
+  .school-chevron { display: block; }
+
+  /* Top rated and recent reviews: sideways shelves that peek at the next card. */
+  .prof-grid--rail, .recent-grid {
+    display: grid;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    gap: 12px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 2px var(--gutter) 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--gutter);
+    scrollbar-width: none;
+  }
+  .prof-grid--rail { grid-auto-columns: 70%; }
+  .recent-grid { grid-auto-columns: 84%; }
+  .recent-grid::-webkit-scrollbar { display: none; }
+  /* position: relative keeps the badges' visually-hidden text inside the scroller
+     (otherwise it is positioned against the page and widens it). */
+  .prof-grid--rail > li, .recent-grid > li { position: relative; scroll-snap-align: start; animation: none !important; }
+  .prof-grid--rail .prof-card { gap: 10px; padding: 16px; }
+  .prof-grid--rail .prof-card .avatar { width: 52px; height: 52px; }
+  .recent-card { gap: 10px; padding: 16px; }
+  .recent-text { font-size: 15px; -webkit-line-clamp: 4; }
+  .recent-prof { padding-top: 10px; font-size: 14px; }
+
+  /* How it works: three short rows. */
+  .steps { gap: 0; text-align: left; }
+  .steps > li { animation: none !important; }
+  .step {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    column-gap: 14px;
+    align-items: start;
+    padding: 10px 0;
+  }
+  .step-icon { grid-row: span 2; width: 40px; height: 40px; margin: 0; border-radius: 11px; }
+  .step-icon svg { width: 20px; height: 20px; }
+  .step h3 { margin: 1px 0 1px; font-size: 16px; }
+  .step p { max-width: none; margin: 0; font-size: 14px; line-height: 1.4; }
+
+  .cta-band { gap: 14px; padding: 20px 18px; }
+  .cta-band h2 { margin-bottom: 4px; font-size: 20px; }
+  .cta-band p { font-size: 15px; }
+}
+
+/* Phones held sideways: the header scrolls away, the tabs stay. */
+@media (max-width: 720px) and (max-height: 520px) {
+  .hero { padding-top: 12px; }
+}
+
+/* ---------- Tablets (iPad portrait, landscape and Split View) ---------- */
+
+@media (min-width: 721px) and (max-width: 1099px) {
+  :root { --gutter: 32px; }
+  .header-nav { display: flex; margin-left: 12px; gap: 2px; }
+  .header-link { padding: 0 12px; }
+  .menu-toggle, .mobile-nav { display: none !important; }
+  /* The Schools panel opens from its button's left edge so it never leaves the screen. */
+  .nav-panel { left: 0; width: min(520px, calc(100vw - 2 * var(--gutter) - 180px)); transform: none; }
+  .nav-panel-list { grid-template-columns: 1fr; }
+  /* The header search field becomes a button that opens the search panel. */
+  .site-header .search { display: none; }
+  .site-header .search + .header-actions { margin-left: auto; }
+  .header-search-btn { display: inline-flex; }
+
+  .school-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .section { padding: 72px 0; }
+
+  /* The search panel: a centred card over a dimmed page. */
+  .search-screen {
+    width: min(640px, calc(100% - 64px));
+    height: min(720px, calc(100dvh - 96px));
+    margin: 48px auto auto;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow-pop);
+  }
+  .search-screen[open] { animation: shell-zoom-in 0.26s var(--ease); }
+  .search-screen.is-closing { animation: shell-zoom-out 0.2s var(--ease) forwards; }
+  .ss-top { padding: 12px 16px; }
+  .ss-body { padding: 10px 16px 24px; }
+}
+@media (min-width: 721px) and (max-width: 960px) {
+  /* The floating cards in the home panel fit their half of the panel at iPad portrait widths. */
+  .hv-stage { scale: 0.78; }
+  .hero-visual { min-height: 380px; }
+  .hv-art { min-height: 380px; }
+  .hero-visual figcaption { padding: 0 0 32px 32px; }
+  .hero-visual figcaption strong { font-size: 28px; }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  /* Narrow iPad widths: the search button shows only its icon. */
+  .header-search-btn { padding: 0; width: 44px; justify-content: center; }
+  .header-search-btn span { display: none; }
+}
+
+/* ---------- Touch screens: native feel ---------- */
+
+@media (hover: none), (pointer: coarse) {
+  html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  /* Pressed states instead of hover. */
+  .prof-card, .chip, .btn, .search-submit, .header-search-btn {
+    transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .prof-card:active, .chip:active, .btn:active, .header-search-btn:active { transform: scale(0.97); }
+  .chip:active, .header-search-btn:active { opacity: 0.7; }
+  .school-card:active .school-card-media { transform: scale(0.98); }
+  .search-option:active, .ss-row:active, .settings-row:active { background: var(--surface-2); }
+  .recent-prof:active { opacity: 0.6; }
+  .header-link:active, .nav-panel-list a:active { background: var(--surface-2); }
+  /* Targets of at least 44px. */
+  .chip { min-height: 44px; }
+  .link-btn { min-height: 44px; }
+}
+/* Hover effects would stick after a tap. */
+@media (hover: none) {
+  .school-card:hover .school-arrow { transform: none; }
+  .brand:hover .brand-bars path { transform: none; }
+  a.chip:hover { color: var(--text); border-color: var(--line); }
+  .hero a.chip:hover { border-color: var(--glass-line); }
+  .ss-chips a.chip:hover { border-color: transparent; }
+  .header-link:hover:not([aria-expanded="true"]):not([aria-current="page"]) { background: none; }
+  .search-input:hover { border-color: transparent; }
+  .recent-prof:hover span:first-child { color: inherit; }
+  .ss-row:hover { background: none; }
+}
+@media (hover: none) and (max-width: 720px) {
+  .school-card:active { background: var(--surface-2); }
+  .school-card:active .school-card-media { transform: none; }
+}

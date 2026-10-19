@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="205 120 790 775">
+  <style>
+    .book { fill: #0A1F44; } .fold { stroke: #FFFFFF; }
+    @media (prefers-color-scheme: dark) { .book { fill: #FFFFFF; } .fold { stroke: #0b1220; } }
+  </style>
+  <g fill="#D4A72C">
+    <path d="M455 315 L535 270 L535 430 L455 486 Z"/>
+    <path d="M560 250 L640 205 L640 440 L560 485 Z"/>
+    <path d="M665 185 L745 140 L745 425 L665 470 Z"/>
+  </g>
+  <g class="book">
+    <path d="M590 570 C520 500 420 455 300 435 L270 635 C385 642 500 684 590 750 Z"/>
+    <path d="M610 570 C680 500 780 455 900 435 L930 635 C815 642 700 684 610 750 Z"/>
+    <path d="M285 655 C405 657 505 700 600 770 C695 700 795 657 915 655 L945 690 C815 696 700 744 600 815 C500 744 385 696 255 690 Z"/>
+    <path d="M245 700 C380 706 500 755 600 830 C700 755 820 706 955 700 L975 735 C825 745 700 800 600 875 C500 800 375 745 225 735 Z"/>
+  </g>
+  <path d="M300 435 C420 455 520 500 590 570 L600 815 C500 744 385 696 255 690 L270 635 C385 642 500 684 590 750 L590 570"
+        fill="none" class="fold" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M900 435 C780 455 680 500 610 570 L600 815 C700 744 815 696 945 690 L930 635 C815 642 700 684 610 750 L610 570"
+        fill="none" class="fold" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M600 570 L600 815" fill="none" class="fold" stroke-width="12" stroke-linecap="round"/>
+</svg>

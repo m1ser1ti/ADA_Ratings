@@ -1,5 +1,9 @@
-Flask>=3.1.0
-Flask-CORS>=6.0.0
-Flask-SQLAlchemy>=3.1.0
-better-profanity>=0.7.0
-psycopg2-binary
+Flask==3.1.3
+Flask-Compress==1.23
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.49
+Flask-Limiter==3.12
+better-profanity==0.7.0
+gunicorn==23.0.0
+psycopg2-binary==2.9.10
+redis==7.4.1

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">ADA Ratings logo</title>
+  <desc id="desc">An open navy book with three gold rising bars and the words ADA Ratings.</desc>
+  <rect width="1200" height="1200" fill="#FFFFFF"/>
+
+  <!-- Rising bars -->
+  <g fill="#D4A72C">
+    <path d="M455 315 L535 270 L535 430 L455 486 Z"/>
+    <path d="M560 250 L640 205 L640 440 L560 485 Z"/>
+    <path d="M665 185 L745 140 L745 425 L665 470 Z"/>
+  </g>
+
+  <!-- Open book: outer pages -->
+  <g fill="#0A1F44">
+    <path d="M590 570 C520 500 420 455 300 435 L270 635 C385 642 500 684 590 750 Z"/>
+    <path d="M610 570 C680 500 780 455 900 435 L930 635 C815 642 700 684 610 750 Z"/>
+    <path d="M285 655 C405 657 505 700 600 770 C695 700 795 657 915 655 L945 690 C815 696 700 744 600 815 C500 744 385 696 255 690 Z"/>
+    <path d="M245 700 C380 706 500 755 600 830 C700 755 820 706 955 700 L975 735 C825 745 700 800 600 875 C500 800 375 745 225 735 Z"/>
+  </g>
+
+  <!-- White page separation and center fold -->
+  <path d="M300 435 C420 455 520 500 590 570 L600 815 C500 744 385 696 255 690 L270 635 C385 642 500 684 590 750 L590 570"
+        fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M900 435 C780 455 680 500 610 570 L600 815 C700 744 815 696 945 690 L930 635 C815 642 700 684 610 750 L610 570"
+        fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M600 570 L600 815" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Wordmark -->
+  <text x="600" y="1000" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="132" font-weight="bold" letter-spacing="-4">
+    <tspan fill="#0A1F44">ADA</tspan><tspan fill="#A37C12"> Ratings</tspan>
+  </text>
+</svg>

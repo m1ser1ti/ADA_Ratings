@@ -30,29 +30,9 @@
 | Layer | Tools |
 | --- | --- |
 | Backend | Python 3.12, Flask, Flask-SQLAlchemy, Flask-Limiter, Flask-Compress, gunicorn |
-| Data | PostgreSQL in production, SQLite locally, Redis for rate limits |
+| Data | PostgreSQL, Redis for rate limits |
 | Frontend | HTML, CSS, vanilla JavaScript (ES modules) |
 | Hosting | Railway (EU West), GitHub Actions for tests |
-
-## Getting started
-
-```bash
-git clone https://github.com/m1ser1ti/ADA_Ratings.git
-cd ADA_Ratings
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-
-PORT=5001 python3 app.py   # creates and seeds a local SQLite database on first run
-```
-
-Open http://localhost:5001 (port 5000 is often taken by AirPlay on macOS).
-
-Run the tests:
-
-```bash
-python -m pytest
-```
 
 ## Project structure
 
@@ -69,8 +49,6 @@ docs/brand/       Logo files
 
 ## Configuration
 
-All variables are optional locally. See [`.env.example`](.env.example).
-
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Database URL. Defaults to a local SQLite file. |
@@ -80,7 +58,6 @@ All variables are optional locally. See [`.env.example`](.env.example).
 | `SITE_URL` | Public origin for canonical links, link previews and the sitemap. |
 | `TRUST_PROXY` | Set to `1` behind exactly one hosting proxy so the real client address is used. |
 | `BACKUP_DATABASE_URL` | A second Postgres for nightly copies (see Backups). |
-| `PORT`, `HOST` | Local development server address. |
 
 ## Deployment
 

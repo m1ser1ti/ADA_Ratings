@@ -132,7 +132,35 @@ def test_profanity_rejected_even_with_zero_width_tricks(client, prof_id):
 
 
 def test_everyday_words_are_not_profanity(client, prof_id):
-    assert post_review(client, professor_id=prof_id, text='Блин, пошел на пару и понравилось').status_code == 201
+    text = 'Success in this class takes work. The ebook has hues of blue, and Nahum explained Sikh history.'
+    assert post_review(client, professor_id=prof_id, text=text).status_code == 201
+
+
+@pytest.mark.parametrize('text', [
+    'He is a suka', 'suuuuka', 's.u.k.a teacher', 'bl9t this exam', 'nahuy this course', 'gijdillax',
+    'Гиждыллах', 'qehbe', 'p1zda',
+])
+def test_russian_and_azerbaijani_swearing_in_any_alphabet_is_rejected(client, prof_id, text):
+    res = post_review(client, professor_id=prof_id, text=text)
+    assert res.status_code == 400
+    assert res.get_json()['error'] == 'Review contains inappropriate language'
+
+
+@pytest.mark.parametrize('text', [
+    'Очень хороший преподаватель', 'Ochen khoroshiy prepod, vse ponyatno obyasnyaet',
+    'Cox yaxsi muellimdir, tovsiye edirem', 'Çox yaxşı müəllimdir, dərsləri maraqlıdır',
+])
+def test_reviews_must_be_in_english(client, prof_id, text):
+    res = post_review(client, professor_id=prof_id, text=text)
+    assert res.status_code == 400
+    assert res.get_json()['code'] == 'english_only'
+
+
+@pytest.mark.parametrize('text', [
+    'Rəşad müəllim is the best teacher I had', 'Explains well. 10/10', 'OK', 'Tough grader for CS 1101',
+])
+def test_english_reviews_with_names_and_codes_are_accepted(client, prof_id, text):
+    assert post_review(client, professor_id=prof_id, text=text).status_code == 201
 
 
 def test_unknown_professor_is_404(client):
@@ -213,7 +241,9 @@ def test_review_length_boundaries(client, prof_id, length, status):
 
 
 def test_long_non_latin_review_is_not_too_large(client, prof_id):
-    assert post_review(client, professor_id=prof_id, text='ə' * 5000).status_code == 201
+    # 5000 two-byte letters fit in the request size limit; the text is then refused for its language.
+    res = post_review(client, professor_id=prof_id, text='ə' * 5000)
+    assert res.status_code == 400 and res.get_json()['code'] == 'english_only'
 
 
 def test_professor_detail_404_and_empty_rating(client, prof_id):

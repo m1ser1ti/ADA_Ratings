@@ -298,9 +298,9 @@ function renderForm(p) {
           <div class="tag-picker">${tags}</div>
           <p class="field-error" id="tags-error"></p>
         </fieldset>
-        <label class="label" for="review-text">Your review <span class="label-hint">(optional)</span></label>
+        <label class="label" for="review-text">Your review <span class="label-hint">(optional, in English)</span></label>
         <textarea class="textarea" id="review-text" name="text" maxlength="${MAX_LENGTH}"
-          aria-describedby="text-error char-count" placeholder="Optional: what was the course like? How were lectures, workload and grading?"></textarea>
+          aria-describedby="text-error char-count" placeholder="In English: what was the course like? How were lectures, workload and grading?"></textarea>
         <span class="char-count" id="char-count">0 / ${MAX_LENGTH}</span>
         <p class="field-error" id="text-error"></p>
         <button type="submit" class="btn btn-primary">Submit review</button>
@@ -969,6 +969,10 @@ function bindReports() {
   });
 }
 
+const ENGLISH_ONLY = 'Please write your review in English. Reviews in other languages are not accepted.';
+// Letters from any script other than Latin (Cyrillic, Arabic, Greek...).
+const NON_LATIN = /(?![\p{Script=Latin}])\p{L}/u;
+
 function setFieldError(id, message, fields) {
   document.getElementById(id).textContent = message;
   fields.forEach(field => field.setAttribute('aria-invalid', message ? 'true' : 'false'));
@@ -1028,6 +1032,9 @@ function bindForm() {
     const n = textarea.value.length;
     counter.textContent = `${n} / ${MAX_LENGTH}`;
     counter.classList.toggle('warn', n > MAX_LENGTH * 0.9);
+    // Cyrillic, Arabic and other scripts are caught while typing; Russian or Azerbaijani in Latin
+    // letters is caught by the server on submit and shown in the same place.
+    setFieldError('text-error', NON_LATIN.test(textarea.value) ? ENGLISH_ONLY : '', [textarea]);
   });
 
   function setBusy(busy, label) {
@@ -1054,10 +1061,13 @@ function bindForm() {
     const courseCode = course.value.trim() ? normalizeCourse(course.value) : '';
     const ratingMsg = checked ? '' : 'Choose a rating from 1 to 10.';
     const courseMsg = courseCode === null ? 'Use a course code like CS 1101, or leave it empty.' : '';
+    const textMsg = NON_LATIN.test(text) ? ENGLISH_ONLY : '';
     setFieldError('rating-error', ratingMsg, radios);
     setFieldError('course-error', courseMsg, [course]);
+    setFieldError('text-error', textMsg, [textarea]);
     if (ratingMsg) { radios[0].focus(); return; }
     if (courseMsg) { course.focus(); return; }
+    if (textMsg) { textarea.focus(); return; }
 
     const body = { professor_id: professor.id, rating: Number(checked.value), text };
     if (courseCode) body.course_code = courseCode;
@@ -1080,6 +1090,12 @@ function bindForm() {
     } catch (err) {
       submitting = false;
       setBusy(false, 'Submit review');
+      if (err.code === 'english_only' || err.status === 400 && /language/.test(err.message || '')) {
+        // About the text itself, so it shows under the text field.
+        setFieldError('text-error', err.code === 'english_only' ? ENGLISH_ONLY : err.message, [textarea]);
+        textarea.focus();
+        return;
+      }
       showStatus('error', submitErrorMessage(err));
       if (err.code === 'rules_required') openRulesGate();
       return;

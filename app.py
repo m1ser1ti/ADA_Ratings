@@ -23,6 +23,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db
+from textcheck import ENGLISH_ONLY_ERROR, has_rude_words, is_english
 from models import (
     BAN_DEVICE, BAN_NETWORK, PROFILE_REQUEST_DISMISSED, PROFILE_REQUEST_DONE, PROFILE_REQUEST_OPEN, REVIEW_AWAITING,
     REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, ProfileRequest, Professor, Report, Review, School,
@@ -38,7 +39,7 @@ REPORTS_TO_HIDE = 3
 REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'faculty_request', 'other')
 # Set by the rules screen every visitor accepts; bump it when the rules change so everyone agrees again.
 RULES_COOKIE = 'ada_rules'
-RULES_VERSION = '1'
+RULES_VERSION = '2'
 AI_REASON_MAX = 300
 RECENT_EXCERPT = 240
 # Keys are stored and sent to the client; the page shows its own labels for them.
@@ -816,8 +817,10 @@ def create_app(config=None):
         review_text = normalize_text(raw)
         if len(review_text) > MAX_REVIEW_LENGTH:
             return jsonify({'error': f'Review is too long (max {MAX_REVIEW_LENGTH} characters)'}), 400
-        if profanity.contains_profanity(review_text):
+        if profanity.contains_profanity(review_text) or has_rude_words(review_text):
             return jsonify({'error': 'Review contains inappropriate language'}), 400
+        if not is_english(review_text):
+            return jsonify({'error': ENGLISH_ONLY_ERROR, 'code': 'english_only'}), 400
 
         details, error = review_details(data)
         if error:

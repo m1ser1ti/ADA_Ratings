@@ -891,7 +891,7 @@ function setupAppShell() {
 // The server checks the same cookie before it accepts a review or a report.
 
 const RULES_COOKIE = 'ada_rules';
-const RULES_VERSION = '1'; // must match RULES_VERSION in app.py
+const RULES_VERSION = '2'; // must match RULES_VERSION in app.py
 
 export function hasAcceptedRules() {
   return document.cookie.split('; ').includes(`${RULES_COOKIE}=${RULES_VERSION}`);
@@ -904,6 +904,7 @@ function rememberRules() {
 
 const RULES_POINTS = [
   ['Be honest and fair.', 'Write only about a course you actually took.'],
+  ['Write in English.', 'Reviews in other languages, or in Russian or Azerbaijani typed in Latin letters, are not accepted.'],
   ['Talk about the teaching, not the person.', 'No insults, and nothing about looks, private life, religion, ethnicity, gender or health.'],
   ['No accusations and no personal data.', 'Do not accuse anyone of crimes or bribery, and do not share contacts or names of other students.'],
   ['Respect people’s reputation.', 'A review is your opinion. Do not use it to damage a professor’s name.'],

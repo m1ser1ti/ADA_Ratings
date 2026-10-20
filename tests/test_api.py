@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app import RULES_COOKIE, RULES_VERSION, create_app
+from app import CLIENT_COOKIE, RULES_COOKIE, RULES_VERSION, create_app
 from extensions import db
 from models import (
     BAN_DEVICE, BAN_NETWORK, REVIEW_AWAITING, REVIEW_HIDDEN, REVIEW_PENDING, REVIEW_PUBLISHED, Ban, Review,
@@ -212,7 +212,7 @@ def test_cookieless_scripts_share_their_network_limit(app, prof_id):
 def test_client_cookie_is_anonymous_and_http_only(app):
     res = app.test_client().get('/')
     cookie = res.headers['Set-Cookie']
-    assert cookie.startswith('ada_client=')
+    assert cookie.startswith('profscope_client=')
     assert 'HttpOnly' in cookie and 'SameSite=Lax' in cookie
 
 
@@ -568,11 +568,10 @@ def test_recent_feed_skips_hidden_reviews(app, client, prof_id):
     assert client.get('/api/reviews/recent').get_json() == []
 
 
-def test_forged_cookies_from_one_network_cannot_hide_a_review(app, client, prof_id, monkeypatch):
+def test_many_cookies_from_one_network_cannot_hide_a_review(app, client, prof_id, monkeypatch):
     review_id = published_review(client, prof_id)
-    for n in range(5):
-        attacker = accept_rules(app.test_client())
-        attacker.set_cookie('ada_client', f'{n:032x}')
+    for _ in range(5):
+        attacker = new_browser(app)  # a fresh, validly signed cookie each time
         assert report(attacker, review_id).status_code == 202
     assert len(client.get(f'/api/professors/{prof_id}').get_json()['reviews']) == 1
 
@@ -582,6 +581,7 @@ def test_forged_cookies_from_one_network_cannot_hide_a_review(app, client, prof_
 
 
 def test_reports_have_a_network_ceiling(app, client, prof_id):
+    from app import issue_client_token
     from extensions import db
     from models import Review
     with app.app_context():
@@ -591,7 +591,7 @@ def test_reports_have_a_network_ceiling(app, client, prof_id):
     codes = []
     for review_id in ids[:31]:
         browser = accept_rules(app.test_client())
-        browser.set_cookie('ada_client', f'{review_id:032x}')
+        browser.set_cookie(CLIENT_COOKIE, issue_client_token())
         codes.append(report(browser, review_id).status_code)
     assert codes[:30] == [202] * 30
     assert codes[30] == 429
@@ -824,7 +824,7 @@ def test_shipped_faculty_file_is_valid():
     assert len({e['profile_url'] for e in entries}) == len(entries)
     for e in entries:
         assert e['name'] and e['profile_url'].startswith('https://www.ada.edu.az/')
-        assert e['image_url'].startswith('https://www.ada.edu.az/')
+        assert 'image_url' not in e  # no photos of university staff are shipped
         assert len(e['name']) <= 100 and len(e['title'] or '') <= 100 and len(e['specialization'] or '') <= 100
 
 
@@ -868,39 +868,8 @@ def test_course_codes_must_use_ascii_digits(client, prof_id):
     assert res.status_code == 400
 
 
-def test_backup_copies_everything_and_restores(tmp_path, app, client, prof_id):
-    from sqlalchemy import create_engine
-    from backup import copy_database
-    from extensions import db
-    post_review(client, professor_id=prof_id, text='Worth backing up, great course.')
-    target = create_engine(f'sqlite:///{tmp_path / "backup.db"}')
-    with app.app_context():
-        counts = copy_database(db.engine, target)
-        assert counts['school'] == 1 and counts['professor'] == 2 and counts['review'] == 1
-        # A second run replaces rather than duplicates.
-        assert copy_database(db.engine, target)['review'] == 1
-        # Restore into an empty database gives the same rows back.
-        restored = create_engine(f'sqlite:///{tmp_path / "restored.db"}')
-        assert copy_database(target, restored) == counts
-        with restored.connect() as con:
-            from sqlalchemy import text
-            assert con.execute(text('SELECT text FROM review')).scalar() == 'Worth backing up, great course.'
+# Backups: see test_fixes.py (dated snapshots and restore).
 
-
-
-def test_backup_into_an_older_backup_schema(tmp_path, app, prof_id):
-    """A backup database made before new columns existed is rebuilt, not left failing."""
-    from sqlalchemy import create_engine, text
-    from backup import copy_database
-    from extensions import db
-    target = create_engine(f'sqlite:///{tmp_path / "old.db"}')
-    with target.begin() as con:
-        con.execute(text('CREATE TABLE professor (id INTEGER PRIMARY KEY, name VARCHAR(100))'))
-        con.execute(text("INSERT INTO professor (id, name) VALUES (99, 'Stale')"))
-    with app.app_context():
-        assert copy_database(db.engine, target)['professor'] == 2
-    with target.connect() as con:
-        assert con.execute(text('SELECT COUNT(*) FROM professor WHERE opted_out = 0')).scalar() == 2
 
 # ---------- Site rules ----------
 
@@ -958,7 +927,7 @@ def test_reviews_store_one_way_codes_of_browser_and_network(app, prof_id):
     assert len({device for device, _ in codes}) == 3, 'every browser has its own code'
     assert codes[0][1] == codes[1][1] != codes[2][1], 'one code per network'
 
-    token = first.get_cookie('ada_client').value
+    token = first.get_cookie(CLIENT_COOKIE).value
     device, network = codes[0]
     assert token not in device and campus not in network
     # Keyed: an unkeyed hash of an IPv4 address can be reversed by trying all of them.
@@ -980,8 +949,8 @@ def test_codes_never_reach_the_public_api(app, client, prof_id):
 def browser_code(app, browser):
     """The code a ban on this browser holds: the same keyed hash stored with its reviews."""
     from app import device_hash
-    token = browser.get_cookie('ada_client').value
-    with app.test_request_context(headers={'Cookie': f'ada_client={token}'}):
+    token = browser.get_cookie(CLIENT_COOKIE).value
+    with app.test_request_context(headers={'Cookie': f'{CLIENT_COOKIE}={token}'}):
         return device_hash()
 
 
@@ -1107,12 +1076,13 @@ def test_an_unset_admin_token_never_matches_an_empty_one(client, monkeypatch):
     assert moderation_queue(client, auth=MODERATOR).status_code == 200
 
 
-def test_queue_lists_unchecked_published_written_reviews_oldest_first(app, client, prof_id, moderation):
+def test_queue_lists_reported_then_unchecked_published_written_reviews_oldest_first(app, client, prof_id, moderation):
     with app.app_context():
         db.session.add_all([
             Review(professor_id=prof_id, rating=7, text='first to check'),
             Review(professor_id=prof_id, rating=7, text=''),  # rating only: nothing to read
             Review(professor_id=prof_id, rating=7, text='hidden one', status=REVIEW_HIDDEN),
+            # Hidden by reports and not re-checked yet: the AI reads it before old published ones.
             Review(professor_id=prof_id, rating=7, text='pending one', status=REVIEW_PENDING),
             Review(professor_id=prof_id, rating=7, text='already checked', ai_verdict='ok',
                    ai_checked_at=datetime.now(timezone.utc)),
@@ -1120,12 +1090,12 @@ def test_queue_lists_unchecked_published_written_reviews_oldest_first(app, clien
         ])
         db.session.commit()
     queue = moderation_queue(client).get_json()
-    assert [r['text'] for r in queue] == ['first to check', 'second to check']
-    assert queue[1] == {
-        'id': queue[1]['id'], 'text': 'second to check', 'rating': 4, 'course_code': 'CS 1101', 'tags': ['caring'],
+    assert [r['text'] for r in queue] == ['pending one', 'first to check', 'second to check']
+    assert queue[2] == {
+        'id': queue[2]['id'], 'text': 'second to check', 'rating': 4, 'course_code': 'CS 1101', 'tags': ['caring'],
         'professor': 'Ada Lovelace', 'school': 'SITE',
     }
-    assert [r['text'] for r in moderation_queue(client, limit=1).get_json()] == ['first to check']
+    assert [r['text'] for r in moderation_queue(client, limit=1).get_json()] == ['pending one']
 
 
 def test_ok_verdict_keeps_the_review_and_takes_it_off_the_queue(app, client, prof_id, moderation):

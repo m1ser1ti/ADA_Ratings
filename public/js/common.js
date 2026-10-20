@@ -12,7 +12,7 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-// The first capture group of `pattern` in the current path, e.g. the 12 in /professor/12-ada-lovelace.
+// The first capture group of `pattern` in the current path, e.g. the 12 in /professor/12-some-name.
 export function pathParam(pattern) {
   const match = window.location.pathname.match(pattern);
   if (!match) return null;
@@ -61,26 +61,39 @@ export async function api(path, options) {
 }
 
 const PROFESSORS_KEY = 'ada-ratings:professors';
-const PROFESSORS_TTL = 60 * 1000;
+const PROFESSORS_TTL = 5 * 60 * 1000;
 
 // All professors, shared by search on every page; cached for a few minutes per tab.
-export async function allProfessors() {
+let professorsInflight = null;
+
+export function allProfessors() {
   try {
     const cached = JSON.parse(sessionStorage.getItem(PROFESSORS_KEY) || 'null');
-    if (cached && Date.now() - cached.at < PROFESSORS_TTL) return cached.list;
+    if (cached && typeof cached.at === 'number' && Array.isArray(cached.list)
+        && cached.list.every(p => p && typeof p.name === 'string')
+        && Date.now() - cached.at < PROFESSORS_TTL) {
+      return Promise.resolve(cached.list);
+    }
   } catch {
     // Storage blocked or corrupt: fetch fresh.
   }
-  const list = await api('/api/professors');
-  try {
-    sessionStorage.setItem(PROFESSORS_KEY, JSON.stringify({ at: Date.now(), list }));
-  } catch {
-    // Storage full or blocked: the list still works for this page.
+  // One request per page, however many callers ask at the same time.
+  if (!professorsInflight) {
+    professorsInflight = api('/api/professors').then(list => {
+      if (!Array.isArray(list)) throw new Error('Unexpected response');
+      try {
+        sessionStorage.setItem(PROFESSORS_KEY, JSON.stringify({ at: Date.now(), list }));
+      } catch {
+        // Storage full or blocked: the list still works for this page.
+      }
+      return list;
+    }).finally(() => { professorsInflight = null; });
   }
-  return list;
+  return professorsInflight;
 }
 
 export function forgetProfessors() {
+  professorsInflight = null;
   try { sessionStorage.removeItem(PROFESSORS_KEY); } catch { /* ignore */ }
 }
 
@@ -167,10 +180,15 @@ export function starsMeter(rating) {
   return `<span class="stars" style="--pct:${pct}%" aria-hidden="true"></span>`;
 }
 
+// Only same-site paths go into href; anything else (javascript:, //host, absolute) becomes '#'.
+export function sitePath(url) {
+  return typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\') ? url : '#';
+}
+
 export function professorCard(p) {
   return `
     <li>
-      <a class="prof-card" href="${escapeHtml(p.url)}">
+      <a class="prof-card" href="${escapeHtml(sitePath(p.url))}">
         <div class="prof-card-top">
           ${avatarImg(p)}
           ${ratingBadge(p.avg_rating)}
@@ -293,19 +311,26 @@ export function setupSearch(root, { limit = 8 } = {}) {
     window.location.href = p.url;
   }
 
-  const render = debounce(() => {
+  function compute() {
     const query = input.value.trim().toLowerCase();
     if (query.length < 2) {
+      matches = [];
+      return false;
+    }
+    matches = professors.filter(p =>
+      (p.name || '').toLowerCase().includes(query) ||
+      (p.specialization || '').toLowerCase().includes(query) ||
+      (p.school || '').toLowerCase() === query
+    ).slice(0, limit);
+    return true;
+  }
+
+  const paint = () => {
+    if (!compute()) {
       close();
       if (live) live.textContent = '';
       return;
     }
-    matches = professors.filter(p =>
-      p.name.toLowerCase().includes(query) ||
-      (p.specialization || '').toLowerCase().includes(query) ||
-      (p.school || '').toLowerCase() === query
-    ).slice(0, limit);
-
     const emptyText = {
       loading: 'Loading professors…',
       failed: 'Search is unavailable right now. Try reloading the page.',
@@ -326,7 +351,8 @@ export function setupSearch(root, { limit = 8 } = {}) {
     input.setAttribute('aria-expanded', 'true');
     active = -1;
     if (live) live.textContent = matches.length ? `${plural(matches.length, 'result')} available` : emptyText;
-  }, 120);
+  };
+  const render = debounce(paint, 120);
 
   input.addEventListener('input', render);
   input.addEventListener('focus', () => { if (input.value.trim().length >= 2) render(); });
@@ -338,12 +364,14 @@ export function setupSearch(root, { limit = 8 } = {}) {
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (list.hidden) { render(); return; }
+      if (list.hidden) { paint(); return; }
       highlight(Math.min(active + 1, matches.length - 1));
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       highlight(Math.max(active - 1, 0));
     } else if (event.key === 'Enter') {
+      // The list may still be waiting on the debounce: match the text as it is now.
+      if (active < 0) compute();
       const pick = matches[active >= 0 ? active : 0];
       if (pick) { event.preventDefault(); go(pick); }
     } else if (event.key === 'Escape') {
@@ -369,7 +397,8 @@ export function setupSearch(root, { limit = 8 } = {}) {
 
   // Optional Search button: opens the highlighted (or first) match, else returns focus to the field.
   root.querySelector('.search-submit')?.addEventListener('click', () => {
-    const pick = !list.hidden && matches[active >= 0 ? active : 0];
+    if (active < 0) compute();
+    const pick = matches[active >= 0 ? active : 0];
     if (pick) go(pick);
     else input.focus();
   });
@@ -483,6 +512,12 @@ document.querySelectorAll('.nav-menu-button').forEach(setupNavMenu);
 // "Rate a professor": on the home page it brings the big search into view and focuses it;
 // elsewhere the link opens the home page at the search.
 export function focusHeroSearch() {
+  // A visitor still facing the rules gate sees it first; the search opens once it closes.
+  const gate = document.getElementById('rules-gate');
+  if (gate && gate.open) {
+    gate.addEventListener('close', () => setTimeout(focusHeroSearch, 0), { once: true });
+    return true;
+  }
   // Phones get the full-screen search instead, with a prompt to pick someone to rate.
   if (SHELL_ENABLED && phoneQuery.matches) {
     openSearchScreen({ mode: 'rate' });
@@ -890,7 +925,7 @@ function setupAppShell() {
 // Every visitor agrees to the review rules once (per rules version) before using the site.
 // The server checks the same cookie before it accepts a review or a report.
 
-const RULES_COOKIE = 'ada_rules';
+const RULES_COOKIE = 'profscope_rules';
 const RULES_VERSION = '2'; // must match RULES_VERSION in app.py
 
 export function hasAcceptedRules() {
@@ -935,16 +970,27 @@ export function openRulesGate() {
         <button type="button" class="link-btn rules-gate-faculty" data-faculty>I am a faculty member — just looking at my profile</button>
       </form>`;
     document.body.append(dialog);
-    // Escape must not skip the agreement.
+    // Escape must not skip the agreement. Browsers may close the dialog anyway (Android Back,
+    // Escape without prior interaction), so closing is handled below as well.
+    let finished = false;
     dialog.addEventListener('cancel', event => event.preventDefault());
+    dialog.addEventListener('close', () => {
+      if (finished) {
+        document.documentElement.classList.remove('rules-open');
+      } else {
+        requestAnimationFrame(() => { if (!dialog.open) dialog.showModal(); });
+      }
+    });
     // Faculty may view their page (and ask for removal) without accepting the student rules;
     // the server still refuses reviews and reports until the rules are accepted.
     dialog.querySelector('[data-faculty]').addEventListener('click', () => {
+      finished = true;
       document.documentElement.classList.remove('rules-open');
       dialog.close();
     });
     dialog.querySelector('form').addEventListener('submit', () => {
       rememberRules();
+      finished = true;
       document.documentElement.classList.remove('rules-open');
     });
   }

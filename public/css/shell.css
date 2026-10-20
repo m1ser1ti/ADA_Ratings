@@ -409,7 +409,7 @@ html.shell-locked { overflow: hidden; }
   .hero h1 { max-width: none; margin: 0 0 8px; font-size: clamp(2rem, 9vw, 2.5rem); line-height: 1.05; }
   .hero-lead { max-width: none; margin: 0 0 16px; font-size: 16px; line-height: 1.4; }
   .hero-lead-more { display: none; }
-  .search--hero { max-width: none; margin: 0; }
+  .search--hero { max-width: none; margin: 0; z-index: 20; }
   .search--hero .search-input { height: 50px; padding: 0 14px 0 46px; font-size: 17px; border-radius: 14px; cursor: pointer; }
   .search--hero .search-icon { left: 16px; }
   /* Schools scroll sideways in one row. */
@@ -622,4 +622,9 @@ html.shell-locked { overflow: hidden; }
 @media (hover: none) and (max-width: 720px) {
   .school-card:active { background: var(--surface-2); }
   .school-card:active .school-card-media { transform: none; }
+}
+
+/* Tablets: a static aurora (the drifting animation is only for desktop and is off on phones). */
+@media (min-width: 721px) and (max-width: 1099px) {
+  .aurora { animation: none; will-change: auto; }
 }

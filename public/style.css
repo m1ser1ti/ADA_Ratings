@@ -1,4 +1,4 @@
-/* ADA Ratings — "Campus" design: ADA University structure, Apple-like clarity.
+/* ProfScope — "Campus" design: university-style structure, Apple-like clarity.
    The system font everywhere, a serif only for the home headline, one action colour,
    gold for ratings and the logo. */
 
@@ -52,7 +52,7 @@
   --border-input: #8a8a8f;          /* 3:1 against white, for form controls */
   --text: #1d1d1f;
   --text-2: #636366;                /* 4.5:1 on white and on --bg-alt */
-  --text-3: #86868b;                /* placeholders and decoration only */
+  --text-3: #6c6c70;                /* 4.5:1 on white, --bg-alt and --surface-2 */
 
   /* Brand and roles */
   --brand: #0a1f44;                 /* logo navy, the home headline */
@@ -60,7 +60,7 @@
   --gold-ink: #a37c12;              /* gold text at large sizes */
   --gold-strong: #7a5c0c;           /* gold text at small sizes */
   --gold-soft: #fbf3dc;
-  --kicker: #ae485e;                /* ADA's own accent, for small section labels */
+  --kicker: #ae485e;                /* accent for small section labels */
   --accent: #0b63ce;                /* links and primary actions */
   --accent-hover: #0954b0;
   --accent-soft: #e8f1fd;
@@ -116,7 +116,7 @@
   --border-input: #7c7c82;
   --text: #f5f5f7;
   --text-2: #a1a1a6;
-  --text-3: #8e8e93;
+  --text-3: #98989d;
   --brand: #f5f5f7;
   --gold: #f0c24b;
   --gold-ink: #e0b74a;
@@ -154,7 +154,7 @@
     --border-input: #7c7c82;
     --text: #f5f5f7;
     --text-2: #a1a1a6;
-    --text-3: #8e8e93;
+    --text-3: #98989d;
     --brand: #f5f5f7;
     --gold: #f0c24b;
     --gold-ink: #e0b74a;
@@ -515,7 +515,8 @@ button, input, select, textarea { font: inherit; letter-spacing: inherit; }
 .search-input::placeholder { color: var(--text-3); }
 .search-input::-webkit-search-cancel-button { cursor: pointer; }
 
-.search--hero { max-width: 680px; margin: 0 auto; }
+/* z-index lifts the open results above the chips, stats and banner that animate in after it. */
+.search--hero { max-width: 680px; margin: 0 auto; z-index: 20; }
 .search--hero .search-input {
   height: 60px;
   padding: 0 124px 0 54px;
@@ -1442,6 +1443,16 @@ a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--
 .report-form .label { font-size: 14px; }
 .report-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .report-row .select, .report-row .input { flex: 1; min-width: 200px; }
+.report-row--spaced { margin-top: 16px; }
+.review p.review-empty--note { margin-top: 10px; }
+.removal { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); }
+#removal-form { max-width: 600px; }
+#removal-form .removal-intro { margin-bottom: 14px; }
+#removal-message { min-height: 110px; }
+#removal-count { margin-bottom: 10px; }
+#removal-contact { width: 100%; }
+#removal-done { max-width: 600px; }
+.state--top { margin-top: 28px; }
 
 /* ---------- Review form ---------- */
 

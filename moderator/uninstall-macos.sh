@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stops the ADA Ratings AI moderator and removes its LaunchAgent.
+# Stops the ProfScope AI moderator and removes its LaunchAgent.
 # The settings file (~/.config/ada-ratings/moderator.env) and the logs are kept.
 set -euo pipefail
 

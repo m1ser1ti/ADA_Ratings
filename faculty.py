@@ -4,6 +4,12 @@ The JSON file is the source of truth for who teaches where. Syncing is idempoten
 every start: it updates titles, photos and profile links, adds new faculty, and marks
 professors who left as inactive. Nobody is deleted, so their reviews and pages survive.
 
+Professors are matched by their profile page (the last part of its address, e.g.
+'12-ada-lovelace'), never by name alone: two people may share a name, and reviews must never move
+from one person to another. Only rows without a profile link (from before links were recorded)
+are matched by name, and then only within the same school; a near-identical name may claim such
+a row only when it has no reviews.
+
 Profiles removed at the professor's request (Professor.opted_out) are still matched, so the same
 person is never added back as a new row, but the sync leaves them exactly as they are.
 Photo links are kept in the database only; the site never sends them to browsers.
@@ -16,7 +22,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from extensions import db
-from models import Professor, School
+from models import Professor, Review, School
 
 log = logging.getLogger(__name__)
 
@@ -25,12 +31,24 @@ FACULTY_FILE = Path(__file__).parent / 'data' / 'faculty.json'
 FUZZY_MATCH = 0.9
 NAME_LETTERS = str.maketrans({'ı': 'i', 'İ': 'i', 'ə': 'e', 'Ə': 'e'})
 SYNCED_FIELDS = ('name', 'title', 'specialization', 'image_url', 'profile_url')
+PROFILE_KEY = re.compile(r'^[0-9]+-[a-z0-9-]+$')
 
 
 def name_key(name):
     """'Aslı Kılınç' -> 'aslikilinc': spelling-insensitive key for matching people."""
     ascii_name = unicodedata.normalize('NFKD', (name or '').translate(NAME_LETTERS)).encode('ascii', 'ignore').decode()
     return re.sub(r'[^a-z]', '', ascii_name.lower())
+
+
+def profile_key(url):
+    """'https://www.ada.edu.az/en/schools/site/members/faculty/12-ada-lovelace' -> '12-ada-lovelace'.
+
+    The profile page's own address part (its number and name): stable for one person, and
+    different for two people with the same name. None for a link that is not a profile page,
+    such as a school's page used as a placeholder by old seed data.
+    """
+    last = str(url or '').split('?', 1)[0].rstrip('/').rsplit('/', 1)[-1]
+    return last if PROFILE_KEY.match(last) else None
 
 
 def load_faculty(path=FACULTY_FILE):
@@ -63,11 +81,9 @@ def clean_entry(entry):
         return None
     if not str(entry.get('profile_url', '')).startswith(ALLOWED_URL_PREFIX):
         return None
-    image = entry.get('image_url')
-    if image is not None and not str(image).startswith(ALLOWED_URL_PREFIX):
-        image = None
+    # Photos of university staff are never stored: the site shows initials. Syncing clears old values.
     values = {field: entry.get(field) for field in SYNCED_FIELDS}
-    values['image_url'] = image
+    values['image_url'] = None
     return values
 
 
@@ -78,10 +94,16 @@ def sync_faculty(entries=None):
         entries = load_faculty()
     schools = {s.code: s for s in School.query.all()}
     existing = Professor.query.all()
-    by_url = {p.profile_url: p for p in existing if p.profile_url}
-    by_key = {}
+    by_profile = {}
     for p in existing:
-        by_key.setdefault(name_key(p.name), p)
+        if profile_key(p.profile_url):
+            by_profile.setdefault(profile_key(p.profile_url), p)
+    # Rows from before profile links were recorded: the only ones a name may match.
+    unlinked = [p for p in existing if not profile_key(p.profile_url)]
+    by_name = {}
+    for p in unlinked:
+        by_name.setdefault((p.school_id, name_key(p.name)), p)
+    reviewed = {pid for pid, in db.session.query(Review.professor_id).group_by(Review.professor_id)}
 
     pending = []
     for entry in entries:
@@ -92,23 +114,26 @@ def sync_faculty(entries=None):
             continue
         pending.append((values, school))
 
-    # Pass 1: exact matches (profile URL, then spelling-insensitive name) for everyone first,
-    # so a near-identical name can never claim a row that belongs to someone else.
+    # Pass 1: exact matches (profile page, then for unlinked rows the spelling-insensitive name in
+    # the same school) for everyone first, so a near-identical name can never claim a row that
+    # belongs to someone else.
     matched = {}
     unmatched = []
     for values, school in pending:
-        p = by_url.get(values['profile_url']) or by_key.get(name_key(values['name']))
+        p = by_profile.get(profile_key(values['profile_url'])) or by_name.get((school.id, name_key(values['name'])))
         if p is not None and p.id not in matched:
             matched[p.id] = (p, values, school)
         else:
             unmatched.append((values, school))
 
-    # Pass 2: near-identical names in the same school, among rows nothing claimed.
+    # Pass 2: near-identical names in the same school, among unlinked rows nothing claimed that have
+    # no reviews: "Elnur Mammadov" and "Elnura Mammadova" are close but different people.
     new = []
     for values, school in unmatched:
         best, best_ratio = None, FUZZY_MATCH
-        for candidate in existing:
-            if candidate.id in matched or candidate.school_id != school.id:
+        for candidate in unlinked:
+            if (candidate.id in matched or candidate.school_id != school.id or candidate.opted_out
+                    or candidate.id in reviewed):
                 continue
             ratio = SequenceMatcher(None, name_key(candidate.name), name_key(values['name'])).ratio()
             if ratio >= best_ratio:
@@ -123,6 +148,8 @@ def sync_faculty(entries=None):
         if p.opted_out:
             continue  # removed at the professor's request: never updated, reactivated or shown again
         changed = any(getattr(p, field) != value for field, value in values.items()) or p.school_id != school.id
+        if p.name != values['name']:
+            log.info('Faculty sync: professor %s renamed from %r to %r', p.id, p.name, values['name'])
         for field, value in values.items():
             setattr(p, field, value)
         p.school_id = school.id

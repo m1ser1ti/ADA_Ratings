@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  launchd LaunchAgent for the ADA Ratings AI moderator.
+  launchd LaunchAgent for the ProfScope AI moderator.
   This is a template: install-macos.sh fills in __PYTHON__, __SCRIPT__, __WORKDIR__ and __HOME__
   and writes the result to ~/Library/LaunchAgents/net.adaratings.moderator.plist.
 -->

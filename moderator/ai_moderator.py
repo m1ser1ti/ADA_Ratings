@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ADA Ratings AI moderator: checks new reviews with a local Ollama model.
+"""ProfScope AI moderator: checks new reviews with a local Ollama model.
 
 It asks the site for published reviews the AI has not checked yet, lets a model running on
 this Mac decide whether each one breaks the site rules, and sends the decision back. Review
@@ -11,6 +11,7 @@ blocks the author's browser. Standard library only, so it runs with the system p
     python3 moderator/ai_moderator.py               # run forever (what launchd starts)
     python3 moderator/ai_moderator.py --once        # one pass over the queue, then exit
     python3 moderator/ai_moderator.py --dry-run     # classify and print, change nothing
+    python3 moderator/ai_moderator.py --status      # last successful poll, queue reachable now?, reviews waiting
 
 Settings come from environment variables, or KEY=VALUE lines in an env file
 (default ~/.config/ada-ratings/moderator.env); real environment variables win.
@@ -35,8 +36,10 @@ log = logging.getLogger('ada-moderator')
 
 DEFAULT_ENV_FILE = Path.home() / '.config' / 'ada-ratings' / 'moderator.env'
 DEFAULT_LOG_FILE = Path.home() / 'Library' / 'Logs' / 'ada-ratings-moderator.log'
+# Heartbeat: when the queue was last fetched successfully (written next to the log).
+DEFAULT_STATE_FILE = Path.home() / 'Library' / 'Logs' / 'ada-ratings-moderator.state.json'
 DEFAULTS = {
-    'SITE_URL': 'https://www.adaratings.net',
+    'SITE_URL': 'https://www.profscope.com',
     'MODERATOR_TOKEN': '',
     'OLLAMA_URL': 'http://localhost:11434',
     'OLLAMA_MODEL': 'qwen3:14b',
@@ -247,11 +250,82 @@ def site_call(config, path, payload=None):
         raise
 
 
-def fetch_queue(config, limit):
-    reviews = site_call(config, f'/api/moderation/queue?limit={limit}')
-    if not isinstance(reviews, list):
-        raise ValueError('queue answer is not a list')
+class Heartbeat:
+    """Remembers when the queue last answered, in memory and in a small JSON state file.
+
+    The state file holds {"last_ok": <unix time>} and lets --status (and a person) see that the
+    moderator is alive. No secrets are stored in it.
+    """
+
+    def __init__(self, path=None):
+        self.path = Path(path) if path else None
+        self.failing_since = None  # unix time of the first failed fetch of the current outage
+
+    def ok(self):
+        now = time.time()
+        if self.failing_since is not None:
+            minutes = max(1, round((now - self.failing_since) / 60))
+            log.info('Connection to ProfScope restored after %s minutes', minutes)
+            self.failing_since = None
+        if self.path:
+            try:
+                tmp = self.path.with_name(self.path.name + '.tmp')
+                tmp.write_text(json.dumps({'last_ok': now}), encoding='utf-8')
+                os.replace(tmp, self.path)
+            except OSError as err:
+                log.warning('Cannot write the state file %s: %s', self.path, err)
+
+    def failed(self):
+        if self.failing_since is None:
+            self.failing_since = time.time()
+
+
+heartbeat = Heartbeat()
+
+
+def read_last_ok(path):
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8')).get('last_ok')
+        return float(value) if isinstance(value, (int, float)) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def fetch_queue(config, limit, beat=True):
+    try:
+        reviews = site_call(config, f'/api/moderation/queue?limit={limit}')
+        if not isinstance(reviews, list):
+            raise ValueError('queue answer is not a list')
+    except Exception:
+        if beat:
+            heartbeat.failed()
+        raise
+    if beat:
+        heartbeat.ok()
     return [r for r in reviews if isinstance(r, dict) and isinstance(r.get('id'), int)]
+
+
+def print_status(config, state_file):
+    last = read_last_ok(state_file)
+    if last is None:
+        print('Last successful poll: never (no state file yet)')
+    else:
+        ago = max(0, int(time.time() - last))
+        print(f'Last successful poll: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last))} ({ago // 60} min {ago % 60} s ago)')
+    if not config['MODERATOR_TOKEN']:
+        print('Queue answers now: no (MODERATOR_TOKEN is not set)')
+        return 1
+    try:
+        waiting = len(fetch_queue(config, QUEUE_MAX, beat=False))
+    except urllib.error.HTTPError as err:
+        print(f'Queue answers now: no (HTTP {err.code})')
+        return 1
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, BadToken, ModerationOff) as err:
+        print(f'Queue answers now: no ({err.__class__.__name__})')
+        return 1
+    print('Queue answers now: yes')
+    print(f'Reviews waiting: {waiting}' + (' or more' if waiting >= QUEUE_MAX else ''))
+    return 0
 
 
 def post_decision(config, review_id, decision):
@@ -446,17 +520,22 @@ def setup_logging(log_file, quiet):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='ADA Ratings AI moderator (local Ollama model).')
+    parser = argparse.ArgumentParser(description='ProfScope AI moderator (local Ollama model).')
     parser.add_argument('--once', action='store_true', help='check the queue once, then exit')
     parser.add_argument('--dry-run', action='store_true', help='classify and print, never send decisions')
+    parser.add_argument('--status', action='store_true', help='print the last successful poll and the queue state, then exit')
+    parser.add_argument('--state-file', default=str(DEFAULT_STATE_FILE), help='heartbeat file; "" to disable')
     parser.add_argument('--env-file', help=f'settings file (default {DEFAULT_ENV_FILE})')
     parser.add_argument('--log-file', default=str(DEFAULT_LOG_FILE), help='log file; "" to log to stdout only')
     parser.add_argument('--quiet', action='store_true', help='log to the log file only (used by launchd)')
     args = parser.parse_args()
 
-    setup_logging(args.log_file, args.quiet)
     env_file = Path(args.env_file).expanduser() if args.env_file else DEFAULT_ENV_FILE
+    if args.status:
+        return print_status(load_config(env_file, env_file_required=bool(args.env_file)), args.state_file)
+    setup_logging(args.log_file, args.quiet)
     config = load_config(env_file, env_file_required=bool(args.env_file))
+    heartbeat.path = Path(args.state_file) if args.state_file else None
 
     # launchd stops the agent with SIGTERM; leave through the normal exit path so it is logged.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))

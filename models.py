@@ -29,7 +29,7 @@ class Professor(db.Model):
     bio = db.Column(db.Text)
     image_url = db.Column(db.String(300))
     profile_url = db.Column(db.String(300))
-    # False once the professor no longer appears on ada.edu.az: hidden from lists and search,
+    # False once the professor is no longer on the university faculty pages: hidden from lists and search,
     # but the page and its reviews stay reachable.
     active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true(), index=True)
     # True once the profile was removed at the professor's request: it is gone from every public
@@ -91,6 +91,9 @@ class Report(db.Model):
     # hiding can require reports from several networks rather than several forged cookies.
     network = db.Column(db.String(32))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Set when a moderator (or the AI, after a re-check) decided on the review: handled reports
+    # no longer count toward hiding it again, so a restored review is not taken down by one new report.
+    handled_at = db.Column(db.DateTime(timezone=True))
     review = db.relationship('Review', back_populates='reports')
 
 
@@ -120,8 +123,12 @@ class ProfileRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     professor_id = db.Column(db.Integer, db.ForeignKey('professor.id'), nullable=False, index=True)
     message = db.Column(db.String(1000), nullable=False)
-    contact = db.Column(db.String(200))  # an email address to reply to, if one was given
+    # An email address to reply to, if one was given. Cleared as soon as the request is resolved.
+    contact = db.Column(db.String(200))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # When a moderator removed the profile or dismissed the request; the message is erased
+    # PERSONAL_DATA_DAYS (app.py) after this.
+    resolved_at = db.Column(db.DateTime(timezone=True))
     # 'open' until a moderator removes the profile ('done') or turns the request down ('dismissed').
     status = db.Column(db.String(16), nullable=False, default=PROFILE_REQUEST_OPEN,
                        server_default=PROFILE_REQUEST_OPEN, index=True)

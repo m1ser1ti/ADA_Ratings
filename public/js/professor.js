@@ -15,6 +15,7 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const REMOVAL_MESSAGE_MAX = 1000;
 const REMOVAL_CONTACT_MAX = 200;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const SIDE_CTA = `<button type="button" class="btn btn-primary btn-block side-cta" data-open-review>${PENCIL_ICON}<span>Write a review</span></button>`;
 const AWAITING_MESSAGE = 'Thanks! Your review was sent and will appear after a quick check, usually within a few minutes.';
 
 const profId = Number(pathParam(/^\/professor\/(\d+)/));
@@ -86,32 +87,109 @@ function loadAwaiting() {
   try { return JSON.parse(sessionStorage.getItem(AWAITING_KEY) || 'null'); } catch { return null; }
 }
 
-// While the author's review waits for the moderator, check every few seconds and show it
-// the moment it is approved (the AI usually decides within half a minute).
+// While the author's review waits for the moderator, ask the server what happened to it and
+// show it the moment it is approved (the AI usually decides within half a minute). Checks slow
+// down over time (5 s, then 15 s, then 60 s), pause while the tab is hidden, and stop once the
+// review is published or was not published.
 let approvalTimer = null;
-function watchApproval() {
+
+function fromHtml(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html.trim();
+  return template.content.firstElementChild;
+}
+
+// 'awaiting', 'published', 'hidden' or 'pending' for this browser's own review; null when the
+// server cannot tell (offline, or the browser lost the cookie that marks it as the author).
+async function reviewStatus(id) {
+  try {
+    return (await api(`/api/reviews/${id}/status`)).status;
+  } catch {
+    return null;
+  }
+}
+
+async function checkApproval() {
   clearTimeout(approvalTimer);
-  if (!awaitingReview) return;
-  const started = Date.now();
-  const check = async () => {
-    if (!awaitingReview || Date.now() - started > 5 * 60 * 1000) return;
+  if (!awaitingReview || document.hidden) return;
+  const id = awaitingReview.id;
+  const status = await reviewStatus(id);
+  if (!awaitingReview || awaitingReview.id !== id) return;
+  if (status === 'hidden') {
+    leaveAwaiting(null);
+    return;
+  }
+  if (status === 'published' || status === null) {
+    // Published (or unknown): the review shows once it is in the professor's public list.
     try {
       const fresh = await api(`/api/professors/${profId}`);
-      if (fresh.reviews.some(r => r.id === awaitingReview.id)) {
-        professor = fresh;
-        newReviewId = awaitingReview.id;
-        awaitingReview = null;
-        saveAwaiting(null);
-        forgetProfessors();
-        render();
-        closeSheet();
-        announce('Your review is now published.');
+      if (!awaitingReview) return;
+      if (fresh.reviews.some(r => r.id === id)) {
+        leaveAwaiting(fresh);
         return;
       }
     } catch { /* offline for a moment: try again */ }
-    approvalTimer = setTimeout(check, 5000);
-  };
-  approvalTimer = setTimeout(check, 4000);
+  }
+  if (!awaitingReview) return;
+  const age = Date.now() - awaitingReview.sentAt;
+  approvalTimer = setTimeout(checkApproval, age < 60000 ? 5000 : age < 180000 ? 15000 : 60000);
+}
+
+function watchApproval() {
+  clearTimeout(approvalTimer);
+  if (!awaitingReview) return;
+  if (!awaitingReview.sentAt) awaitingReview.sentAt = Date.now();
+  approvalTimer = setTimeout(checkApproval, 4000);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !awaitingReview) return;
+  clearTimeout(approvalTimer);
+  approvalTimer = setTimeout(checkApproval, 500);
+});
+
+// The waiting state ends: the review was published (`fresh` is the new page data) or was not
+// published (`fresh` is null). Only the parts that change are touched, so a report form or a
+// removal request the visitor is typing into stays as it is.
+function leaveAwaiting(fresh) {
+  const mine = awaitingReview;
+  awaitingReview = null;
+  saveAwaiting(null);
+  forgetProfessors();
+  const item = document.querySelector('[data-awaiting]');
+  const list = document.getElementById('review-list');
+  if (fresh) {
+    professor = fresh;
+    newReviewId = mine.id;
+    const review = fresh.reviews.find(r => r.id === mine.id);
+    if (item && review) item.replaceWith(fromHtml(renderReviewItem(review, new Set())));
+    document.querySelector('.summary')?.replaceWith(fromHtml(renderSummary(fresh)));
+    const count = document.querySelector('#reviews-title .prof-title');
+    if (count) count.textContent = `(${fresh.reviews.length})`;
+    applyBars(root);
+  } else {
+    item?.remove();
+    if (list && !list.children.length) list.innerHTML = renderReviewItems([], 'newest');
+  }
+  const section = document.getElementById('review-form');
+  if (section) {
+    section.replaceWith(fromHtml(renderForm(professor)));
+    bindForm();
+    placeForm();
+  }
+  if (!root.querySelector('.side-cta')) {
+    root.querySelector('.summary-band')?.insertAdjacentHTML('beforeend', SIDE_CTA);
+  }
+  bindMobileCta();
+  if (fresh) {
+    closeSheet();
+    announce('Your review is now published.');
+  } else {
+    const note = 'This review was not published. You can write a new one.';
+    const status = document.getElementById('form-status');
+    if (status) { status.className = 'status error'; status.textContent = note; }
+    announce(note);
+  }
 }
 
 function saveAwaiting(review) {
@@ -162,6 +240,16 @@ function summaryNote(p) {
   return `from ${plural(total, 'review')}`;
 }
 
+// Bar widths come from data attributes and are set through the CSSOM, so no inline style
+// attributes are generated.
+function applyBars(scope) {
+  scope.querySelectorAll('[data-pct]').forEach(el => {
+    const pct = `${Number(el.dataset.pct)}%`;
+    if (el.dataset.set.includes('width')) el.style.width = pct;
+    if (el.dataset.set.includes('--pct')) el.style.setProperty('--pct', pct);
+  });
+}
+
 function renderSummary(p) {
   const max = Math.max(1, ...Object.values(p.distribution));
   const bars = Array.from({ length: 10 }, (_, i) => {
@@ -170,7 +258,7 @@ function renderSummary(p) {
     return `
       <li>
         <span aria-hidden="true">${n}</span>
-        <span class="dist-bar" aria-hidden="true"><span style="width:${(c / max) * 100}%;--pct:${(c / max) * 100}%"></span></span>
+        <span class="dist-bar" aria-hidden="true"><span data-pct="${(c / max) * 100}" data-set="width --pct"></span></span>
         <span class="dist-count" aria-hidden="true">${c}</span>
         <span class="visually-hidden">${plural(c, 'review')} rated ${n}</span>
       </li>`;
@@ -185,10 +273,10 @@ function renderSummary(p) {
         <p class="stat-note">${summaryNote(p)}</p>
       </div>
       ${renderInsights(p)}
-      <div class="stat stat-dist">
+      ${p.review_count >= MIN_REVIEWS_FOR_AVERAGE ? `<div class="stat stat-dist">
         <p class="stat-label">Rating distribution</p>
         <ul class="dist">${bars}</ul>
-      </div>
+      </div>` : ''}
       ${p.top_tags?.length ? `<div class="stat stat-tags">
         <p class="stat-label">Students say</p>
         <ul class="tag-list">${p.top_tags.map(t => tagChip(t.tag, t.count)).join('')}</ul>
@@ -210,7 +298,7 @@ function renderInsights(p) {
     items.push(`<div class="stat stat-insight">
       <p class="stat-label">Would take again</p>
       <p class="stat-value">${p.would_take_again_pct}%</p>
-      <div class="meter" aria-hidden="true"><span style="width:${p.would_take_again_pct}%"></span></div>
+      <div class="meter" aria-hidden="true"><span data-pct="${p.would_take_again_pct}" data-set="width"></span></div>
     </div>`);
   }
   if (p.avg_difficulty != null) {
@@ -218,7 +306,7 @@ function renderInsights(p) {
     items.push(`<div class="stat stat-insight">
       <p class="stat-label">Difficulty</p>
       <p class="stat-value">${value}<small aria-hidden="true">/5</small><span class="visually-hidden"> out of 5</span></p>
-      <div class="meter" aria-hidden="true"><span style="width:${(p.avg_difficulty / 5) * 100}%"></span></div>
+      <div class="meter" aria-hidden="true"><span data-pct="${(p.avg_difficulty / 5) * 100}" data-set="width"></span></div>
     </div>`);
   }
   return items.join('');
@@ -296,7 +384,7 @@ function renderForm(p) {
         <fieldset class="fieldset">
           <legend>Tags <span class="label-hint">(optional, up to ${MAX_TAGS})</span></legend>
           <div class="tag-picker">${tags}</div>
-          <p class="field-error" id="tags-error"></p>
+          <p class="field-error" id="tags-error" aria-live="polite"></p>
         </fieldset>
         <label class="label" for="review-text">Your review <span class="label-hint">(optional, in English)</span></label>
         <textarea class="textarea" id="review-text" name="text" maxlength="${MAX_LENGTH}"
@@ -315,14 +403,14 @@ function visibleReviews() {
 
 function renderAwaitingItem(r) {
   return `
-    <li class="review is-new" data-review-id="${Number(r.id)}">
+    <li class="review is-new" data-review-id="${Number(r.id)}" data-awaiting>
       <div class="review-meta">
         ${ratingBadge(r.rating)}
         <span>Your review · waiting for a quick check</span>
       </div>
       ${reviewDetails(r)}
       <p>${escapeHtml(r.text)}</p>
-      <p class="review-empty" style="margin-top:10px">Only you can see it for now. It appears here for everyone once a moderator has checked it.</p>
+      <p class="review-empty review-empty--note">Only you can see it for now. It appears here for everyone once a moderator has checked it.</p>
     </li>`;
 }
 
@@ -337,11 +425,14 @@ function renderReviewItems(reviews, sort) {
     </li>`;
   }
   const reported = reportedIds();
-  return awaiting + [...reviews].sort(SORTS[sort] || SORTS.newest).map(r => {
+  return awaiting + [...reviews].sort(SORTS[sort] || SORTS.newest).map(r => renderReviewItem(r, reported)).join('');
+}
+
+function renderReviewItem(r, reported) {
     const mine = r.id === newReviewId;
     const action = mine ? '' : reported.has(r.id)
       ? '<span class="review-reported">Reported</span>'
-      : `<button type="button" class="review-report" data-review="${r.id}" aria-expanded="false">Report<span class="visually-hidden"> this review</span></button>`;
+      : `<button type="button" class="review-report" data-review="${r.id}" aria-expanded="false" aria-controls="report-form-${r.id}">Report<span class="visually-hidden"> this review</span></button>`;
     return `
     <li class="review${mine ? ' is-new' : ''}" data-review-id="${r.id}">
       <div class="review-meta">
@@ -353,7 +444,6 @@ function renderReviewItems(reviews, sort) {
       ${reviewDetails(r)}
       ${r.text ? `<p>${escapeHtml(r.text)}</p>` : '<p class="review-empty">Rated without a written review.</p>'}
     </li>`;
-  }).join('');
 }
 
 // Phones and tablets: sort as a segmented control in a bar that sticks under the header.
@@ -403,22 +493,21 @@ function renderReviews(p) {
 
 function renderRemoval(p) {
   return `
-    <section class="removal" id="removal" aria-label="Profile removal"
-      style="margin-top:56px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--text-2)">
+    <section class="removal" id="removal" aria-label="Profile removal">
       <button type="button" class="link-btn" id="removal-toggle" aria-expanded="false" aria-controls="removal-form">Are you this professor? Request removal of this profile</button>
-      <form class="report-form" id="removal-form" style="max-width:600px" novalidate hidden>
-        <p style="margin-bottom:14px">If you are ${escapeHtml(p.name)} and do not want a profile on this site, tell us here. A moderator reads every request. Once it is accepted, this page and its reviews are no longer shown anywhere on the site.</p>
+      <form class="report-form" id="removal-form" novalidate hidden>
+        <p class="removal-intro">If you are ${escapeHtml(p.name)} and do not want a profile on this site, tell us here. A moderator reads every request. Once it is accepted, this page and its reviews are no longer shown anywhere on the site.</p>
         <label class="label" for="removal-message">Your message</label>
         <textarea class="textarea" id="removal-message" name="message" maxlength="${REMOVAL_MESSAGE_MAX}" required
-          style="min-height:110px" aria-describedby="removal-message-error removal-count"
+          aria-describedby="removal-message-error removal-count"
           placeholder="For example: I am this professor and I would like this profile removed."></textarea>
-        <span class="char-count" id="removal-count" style="margin-bottom:10px">0 / ${REMOVAL_MESSAGE_MAX}</span>
+        <span class="char-count" id="removal-count">0 / ${REMOVAL_MESSAGE_MAX}</span>
         <p class="field-error" id="removal-message-error"></p>
         <label class="label" for="removal-contact">Your email <span class="label-hint">(optional, if you would like a reply)</span></label>
         <input class="input" id="removal-contact" name="contact" type="email" maxlength="${REMOVAL_CONTACT_MAX}"
-          autocomplete="email" spellcheck="false" style="width:100%" aria-describedby="removal-contact-error">
+          autocomplete="email" spellcheck="false" aria-describedby="removal-contact-error">
         <p class="field-error" id="removal-contact-error"></p>
-        <div class="report-row" style="margin-top:16px">
+        <div class="report-row report-row--spaced">
           <button type="submit" class="btn btn-primary btn-sm">Send request</button>
           <button type="button" class="btn btn-ghost btn-sm" data-removal-cancel>Cancel</button>
         </div>
@@ -491,7 +580,7 @@ function bindRemoval() {
     }
     const done = 'Thank you. Your request was sent. A moderator will look at it soon'
       + `${email ? ' and reply to the email you gave' : ''}.`;
-    section.innerHTML = `<p class="status success" id="removal-done" tabindex="-1" style="max-width:600px">${escapeHtml(done)}</p>`;
+    section.innerHTML = `<p class="status success" id="removal-done" tabindex="-1">${escapeHtml(done)}</p>`;
     document.getElementById('removal-done').focus();
     announce(done);
   });
@@ -514,19 +603,25 @@ function bindMobileCta() {
   // Already sent one: nothing more to write here today.
   bar.classList.toggle('is-hidden', Boolean(awaitingReview));
   if (awaitingReview || !('IntersectionObserver' in window)) return;
+  // The floating button steps aside while anything that offers the same action (or would sit
+  // under it) is on screen: the form itself, the empty state's own button, the removal form.
+  const targets = [];
   if (sheetMode.matches) {
-    // The form is in the sheet; just step aside while the faculty removal form is open on screen.
     const removal = document.getElementById('removal-form');
-    if (!removal) return;
-    ctaObserver = new IntersectionObserver(([entry]) => bar.classList.toggle('is-hidden', entry.isIntersecting));
-    ctaObserver.observe(removal);
-    return;
+    if (removal) targets.push([removal, entry => entry.isIntersecting]);
+  } else if (form) {
+    targets.push([form, entry => entry.isIntersecting || entry.boundingClientRect.top < 0]);
   }
-  if (!form) return;
-  ctaObserver = new IntersectionObserver(([entry]) => {
-    bar.classList.toggle('is-hidden', entry.isIntersecting || entry.boundingClientRect.top < 0);
+  const emptyButton = document.querySelector('#review-list .state .btn');
+  if (emptyButton) targets.push([emptyButton, entry => entry.isIntersecting]);
+  if (!targets.length) return;
+  const hides = new Map(targets.map(([el]) => [el, false]));
+  const rules = new Map(targets);
+  ctaObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => hides.set(entry.target, rules.get(entry.target)(entry)));
+    bar.classList.toggle('is-hidden', [...hides.values()].some(Boolean));
   });
-  ctaObserver.observe(form);
+  targets.forEach(([el]) => ctaObserver.observe(el));
 }
 
 // ---------- Review sheet (phones and tablets) ----------
@@ -621,7 +716,11 @@ function closeSheet(immediate = false) {
     done = true;
     if (sheet.open) sheet.close();
   };
-  sheet.addEventListener('transitionend', event => { if (event.target === sheet) finish(); }, { once: true });
+  sheet.addEventListener('transitionend', function onEnd(event) {
+    if (event.target !== sheet) return;
+    sheet.removeEventListener('transitionend', onEnd);
+    finish();
+  });
   setTimeout(finish, 400);
 }
 
@@ -855,7 +954,7 @@ function render() {
     <div class="summary-band">
       ${renderSummary(p)}
       <div class="summary-dots" aria-hidden="true"></div>
-      ${awaitingReview ? '' : `<button type="button" class="btn btn-primary btn-block side-cta" data-open-review>${PENCIL_ICON}<span>Write a review</span></button>`}
+      ${awaitingReview ? '' : SIDE_CTA}
     </div>
     <div class="prof-columns">
       ${renderReviews(p)}
@@ -870,6 +969,7 @@ function render() {
   bindReports();
   bindRemoval();
   bindShare();
+  applyBars(root);
   placeForm();
   bindMobileCta();
   bindSortControls();
@@ -906,7 +1006,7 @@ function reportForm(id) {
   const options = Object.entries(REPORT_REASONS)
     .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
   return `
-    <form class="report-form" data-review="${id}">
+    <form class="report-form" id="report-form-${id}" data-review="${id}" aria-label="Report this review">
       <label class="label" for="report-reason-${id}">Why should a moderator check this review?</label>
       <div class="report-row">
         <select class="select" id="report-reason-${id}" name="reason">${options}</select>
@@ -915,6 +1015,14 @@ function reportForm(id) {
       </div>
       <p class="field-error" role="alert"></p>
     </form>`;
+}
+
+function closeReportForm(item) {
+  item.querySelector('.report-form')?.remove();
+  const button = item.querySelector('.review-report');
+  if (!button) return;
+  button.setAttribute('aria-expanded', 'false');
+  button.focus();
 }
 
 function bindReports() {
@@ -929,13 +1037,10 @@ function bindReports() {
       item.querySelector('.report-form select').focus();
       return;
     }
-    if (event.target.matches('[data-cancel]')) {
-      const item = event.target.closest('.review');
-      item.querySelector('.report-form').remove();
-      const button = item.querySelector('.review-report');
-      button.setAttribute('aria-expanded', 'false');
-      button.focus();
-    }
+    if (event.target.matches('[data-cancel]')) closeReportForm(event.target.closest('.review'));
+  });
+  list.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && event.target.closest('.report-form')) closeReportForm(event.target.closest('.review'));
   });
   list.addEventListener('submit', async event => {
     const form = event.target.closest('.report-form');
@@ -962,9 +1067,11 @@ function bindReports() {
     rememberReported(id);
     const item = form.closest('.review');
     form.remove();
-    item.querySelector('.review-report')?.replaceWith(Object.assign(document.createElement('span'), {
-      className: 'review-reported', textContent: 'Reported',
-    }));
+    const reportedMark = Object.assign(document.createElement('span'), {
+      className: 'review-reported', textContent: 'Reported', tabIndex: -1,
+    });
+    item.querySelector('.review-report')?.replaceWith(reportedMark);
+    reportedMark.focus();
     announce('Thank you. A moderator will check this review.');
   });
 }
@@ -1023,7 +1130,9 @@ function bindForm() {
     const chosen = tagBoxes.filter(b => b.checked).length;
     if (box.checked && chosen > MAX_TAGS) {
       box.checked = false;
-      setFieldError('tags-error', `Choose up to ${MAX_TAGS} tags. Untick one to pick another.`, []);
+      const tagMessage = `Choose up to ${MAX_TAGS} tags. Untick one to pick another.`;
+      setFieldError('tags-error', tagMessage, []);
+      announce(tagMessage);
       return;
     }
     setFieldError('tags-error', '', []);
@@ -1105,7 +1214,7 @@ function bindForm() {
     forgetProfessors();
     if (res?.status === 'awaiting') {
       // Not public yet: show the author a note, not a published review.
-      awaitingReview = res.review;
+      awaitingReview = { ...res.review, sentAt: Date.now() };
       saveAwaiting(awaitingReview);
       render();
       const sent = document.getElementById('form-status');
@@ -1138,14 +1247,14 @@ function bindForm() {
 function removedProfile(message) {
   document.title = 'Profile removed · ProfScope';
   document.getElementById('crumb-prof').textContent = 'Profile removed';
-  root.innerHTML = `<div class="state" style="margin-top:28px"><h1 class="state-title">Profile removed</h1><p>${escapeHtml(message)} <a href="/">Go to all schools</a>.</p></div>`;
+  root.innerHTML = `<div class="state state--top"><h1 class="state-title">Profile removed</h1><p>${escapeHtml(message)} <a href="/">Go to all schools</a>.</p></div>`;
   root.removeAttribute('aria-busy');
 }
 
 function notFound(message) {
   document.title = 'Professor not found · ProfScope';
   document.getElementById('crumb-prof').textContent = 'Not found';
-  root.innerHTML = `<div class="state"><h1 class="state-title">Professor not found</h1><p>${message} <a href="/">Go to all schools</a>.</p></div>`;
+  root.innerHTML = `<div class="state"><h1 class="state-title">Professor not found</h1><p>${escapeHtml(message)} <a href="/">Go to all schools</a>.</p></div>`;
   root.removeAttribute('aria-busy');
 }
 
@@ -1172,6 +1281,19 @@ async function load() {
   }
   render();
   watchApproval();
+  openRateLink();
+}
+
+// /professor/26-name?rate=1 opens the review form straight away (the sheet where there is one).
+function openRateLink() {
+  const params = new URLSearchParams(location.search);
+  if (!params.has('rate')) return;
+  params.delete('rate');
+  const query = params.toString();
+  history.replaceState(history.state, '', location.pathname + (query ? `?${query}` : '') + location.hash);
+  if (!document.getElementById('review-form')) return;
+  if (sheetMode.matches) openSheet(document.activeElement);
+  else document.getElementById('review-form').scrollIntoView({ behavior: reducedMotion.matches ? 'auto' : 'smooth' });
 }
 
 load();

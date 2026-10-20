@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs the ADA Ratings AI moderator as a launchd LaunchAgent: it starts at login,
+# Installs the ProfScope AI moderator as a launchd LaunchAgent: it starts at login,
 # restarts if it exits, and keeps the Mac awake while it runs.
 #
 #   bash moderator/install-macos.sh
@@ -54,11 +54,11 @@ if [ ! -f "$ENV_FILE" ]; then
   (
     umask 077
     cat > "$ENV_FILE" <<'EOF'
-# ADA Ratings AI moderator settings (KEY=VALUE).
+# ProfScope AI moderator settings (KEY=VALUE).
 # Paste the server's MODERATOR_TOKEN after the = sign. The moderator checks this file
 # every few minutes, so it starts working without a restart once the token is set.
 MODERATOR_TOKEN=
-SITE_URL=https://www.adaratings.net
+SITE_URL=https://www.profscope.com
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:14b
 POLL_SECONDS=60

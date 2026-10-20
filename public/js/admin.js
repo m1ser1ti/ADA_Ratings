@@ -39,7 +39,7 @@ const baseTitle = document.title;
 
 // ---------- State ----------
 
-const state = { reviews: new Map(), bans: [], requests: [], removed: [], loaded: false, offline: false };
+const state = { reviews: new Map(), bans: [], bursts: [], requests: [], removed: [], loaded: false, offline: false };
 const sigs = {};          // what each list last rendered, so a refresh only redraws what changed
 const pending = new Set(); // cards with a request in flight
 let blocked = new Set();  // review ids whose author is blocked right now
@@ -98,7 +98,7 @@ function reviewsIn(where) {
 }
 
 const flaggedOrder = (a, b) => (b.report_count - a.report_count) || (b.id - a.id);
-const reviewSig = r => `${r.id}:${r.status}:${r.report_count}:${r.ai_verdict}:${blocked.has(Number(r.id)) ? 1 : 0}`;
+const reviewSig = r => `${r.id}:${r.status}:${r.report_count}:${r.ai_verdict}:${r.professor && r.professor.burst ? 1 : 0}:${blocked.has(Number(r.id)) ? 1 : 0}`;
 
 const LISTS = {
   awaiting: {
@@ -229,6 +229,7 @@ function reviewCard(r, where) {
           ${sub([course, dateTag(r.created_at), `#${id}`])}
         </div>
         ${statusChip}
+        ${r.professor && r.professor.burst ? '<span class="mod-chip">Burst</span>' : ''}
         ${authorBlocked ? '<span class="mod-chip is-bad">Author blocked</span>' : ''}
       </div>
       ${r.text ? `<p class="mod-text">${escapeHtml(r.text)}</p>` : '<p class="mod-text is-empty">Rated without a written review.</p>'}
@@ -358,9 +359,20 @@ function counts() {
   };
 }
 
+function renderBursts() {
+  const box = $('mod-bursts');
+  const rows = state.bursts.filter(b => b && b.professor);
+  box.hidden = rows.length === 0;
+  if (!rows.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<p class="mod-line is-bad"><strong>Possible rating burst:</strong> ${rows.map(b =>
+    `${profLink(b.professor)} (${escapeHtml(plural(Number(b.reviews) || 0, 'rating'))} from one network in ${escapeHtml(plural(Number(b.hours) || 0, 'hour'))})`
+  ).join(', ')}</p>`;
+}
+
 function renderAll() {
   blocked = new Set(state.bans.filter(b => banActive(b) && b.review_id != null).map(b => Number(b.review_id)));
   Object.keys(LISTS).forEach(renderList);
+  renderBursts();
 
   const live = LISTS.live.items().length;
   const hidden = LISTS.hidden.items().length;
@@ -753,7 +765,7 @@ function load({ manual = false } = {}) {
         if (key.startsWith('review-') && state.reviews.has(id)) reviews.set(id, state.reviews.get(id));
       });
       Object.assign(state, {
-        reviews, bans: bans || [], requests: profiles.requests || [], removed: profiles.removed || [], offline: false,
+        reviews, bursts: data.bursts || [], bans: bans || [], requests: profiles.requests || [], removed: profiles.removed || [], offline: false,
       });
       const first = !state.loaded;
       state.loaded = true;

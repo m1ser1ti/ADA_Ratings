@@ -6,7 +6,8 @@ import os
 import re
 import secrets
 import unicodedata
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -36,9 +37,21 @@ MAX_REVIEW_LENGTH = 5000
 MIN_REVIEWS_FOR_AVERAGE = 5
 # This many reports take a review off the site until a moderator looks at it.
 REPORTS_TO_HIDE = 3
+# A professor's own request hides a review at once, until a person decides.
+FACULTY_REQUEST = 'faculty_request'
+# Reviews the AI moderator reads: new ones, ones hidden by reports, and old unread published ones.
+AI_QUEUE_STATUSES = (REVIEW_AWAITING, REVIEW_PENDING, REVIEW_PUBLISHED)
+# This many rating-only reviews of one professor from one network within BURST_HOURS are
+# flagged in the admin list for a person to look at. Nothing is blocked: a whole campus
+# shares one address.
+BURST_REVIEWS = 5
+BURST_HOURS = 24
+# Removal requests: the email is cleared when the request is resolved, and the message this
+# many days after that (see purge_personal_data).
+PERSONAL_DATA_DAYS = 30
 REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'faculty_request', 'other')
 # Set by the rules screen every visitor accepts; bump it when the rules change so everyone agrees again.
-RULES_COOKIE = 'ada_rules'
+RULES_COOKIE = 'profscope_rules'
 RULES_VERSION = '2'
 AI_REASON_MAX = 300
 RECENT_EXCERPT = 240
@@ -171,8 +184,52 @@ def review_aggregates(reviews):
     }
 
 
-CLIENT_COOKIE = 'ada_client'
+CLIENT_COOKIE = 'profscope_client'
 CLIENT_COOKIE_MAX_AGE = 365 * 24 * 3600
+
+# Without SECRET_KEY the hashing key changes on every restart; network hashes then
+# stop matching older reports, which only makes automatic hiding more conservative.
+SECRET = (os.environ.get('SECRET_KEY') or secrets.token_hex(32)).encode()
+# Network and browser codes stored in the database keep using the secret itself, so codes
+# written before the derived keys existed (bans, reports) still match.
+NETWORK_HASH_KEY = SECRET
+
+
+def derived_key(purpose):
+    """A separate key per use, so a value made for one purpose is useless for another."""
+    return hmac.new(SECRET, f'profscope:{purpose}'.encode(), hashlib.sha256).digest()
+
+
+CLIENT_COOKIE_KEY = derived_key('client-cookie')
+RATE_LIMIT_KEY = derived_key('rate-limit-keys')
+CLIENT_TOKEN = re.compile(r'^([0-9a-f]{32})\.([0-9a-f]{32})$')
+
+
+def sign_client_id(client_id):
+    return hmac.new(CLIENT_COOKIE_KEY, client_id.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def issue_client_token():
+    """A fresh cookie value: a random id and its signature, '<id>.<sig>'."""
+    client_id = secrets.token_hex(16)
+    return f'{client_id}.{sign_client_id(client_id)}'
+
+
+def verified_client_id(token):
+    """The random id of a cookie value this server signed, else None (forged, unsigned, malformed)."""
+    match = CLIENT_TOKEN.match(token) if isinstance(token, str) else None
+    if not match or not hmac.compare_digest(match[2], sign_client_id(match[1])):
+        return None
+    return match[1]
+
+
+def client_id():
+    return verified_client_id(request.cookies.get(CLIENT_COOKIE, ''))
+
+
+def rate_hash(value):
+    """Keyed hash for rate-limit keys, so the limiter store never holds an address or a cookie."""
+    return hmac.new(RATE_LIMIT_KEY, value.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def network_key():
@@ -191,19 +248,20 @@ def network_key():
     return str(ip)
 
 
+def network_rate_key():
+    """The network as a rate-limit key: a keyed hash, never the address itself."""
+    return f'net:{rate_hash(network_key())}'
+
+
 def device_key():
-    """The browser's anonymous id cookie, or the network when there is none.
+    """The browser's signed anonymous id cookie, or the network when there is no valid one.
 
     Students on the campus Wi-Fi share one public address, so per-person limits must not
     be per-address. The cookie is trivially cleared, which is why the network keeps its own,
-    looser ceiling.
+    looser ceiling. A forged or unsigned cookie counts as no cookie.
     """
-    token = request.cookies.get(CLIENT_COOKIE, '')
-    return f'device:{token}' if is_client_token(token) else f'net:{network_key()}'
-
-
-def is_client_token(token):
-    return isinstance(token, str) and len(token) == 32 and all(c in '0123456789abcdef' for c in token)
+    cid = client_id()
+    return f'device:{rate_hash(cid)}' if cid else network_rate_key()
 
 
 def json_professor_id():
@@ -216,21 +274,16 @@ def review_rate_key():
     return f'{device_key()}:{json_professor_id()}'
 
 
-# Without SECRET_KEY the hashing key changes on every restart; network hashes then
-# stop matching older reports, which only makes automatic hiding more conservative.
-NETWORK_HASH_KEY = (os.environ.get('SECRET_KEY') or secrets.token_hex(32)).encode()
-
-
 def network_hash():
     return hmac.new(NETWORK_HASH_KEY, network_key().encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def device_hash():
-    """Keyed hash of the anonymous browser cookie, or None when the browser has none."""
-    token = request.cookies.get(CLIENT_COOKIE, '')
-    if not is_client_token(token):
+    """Keyed hash of the anonymous browser id, or None when the browser has no valid cookie."""
+    cid = client_id()
+    if cid is None:
         return None
-    return hmac.new(NETWORK_HASH_KEY, f'device:{token}'.encode(), hashlib.sha256).hexdigest()[:32]
+    return hmac.new(NETWORK_HASH_KEY, f'device:{cid}'.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def active_ban(include_network=True):
@@ -273,7 +326,16 @@ def professor_rate_key():
 
 
 RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
-limiter = Limiter(key_func=network_key, storage_uri=RATELIMIT_STORAGE_URI, headers_enabled=True)
+# If the shared store (Redis) is unreachable, count in this process's memory until it is back,
+# instead of failing every limited request with a 500.
+LIMITER_OPTIONS = {'headers_enabled': True, 'in_memory_fallback_enabled': True, 'swallow_errors': True}
+
+
+def make_limiter(storage_uri):
+    return Limiter(key_func=network_rate_key, storage_uri=storage_uri, **LIMITER_OPTIONS)
+
+
+limiter = make_limiter(RATELIMIT_STORAGE_URI)
 compress = Compress()
 
 CACHEABLE_API = ('/api/schools', '/api/professors', '/api/reviews/recent')
@@ -287,14 +349,15 @@ def database_url():
     return url
 
 
-def upgrade_schema():
+def upgrade_schema(engine=None):
     """Bring tables created by older versions up to date (create_all never alters a table).
 
     The index statements matter only for databases created before those columns were
     indexed: create_all never adds an index to a table that already exists.
     """
-    columns = {c['name'] for c in inspect(db.engine).get_columns('review')}
-    with db.engine.begin() as conn:
+    engine = engine if engine is not None else db.engine
+    columns = {c['name'] for c in inspect(engine).get_columns('review')}
+    with engine.begin() as conn:
         if 'created_at' not in columns:
             log.info('Adding review.created_at')
             conn.execute(text('ALTER TABLE review ADD COLUMN created_at TIMESTAMP WITH TIME ZONE'))
@@ -313,16 +376,19 @@ def upgrade_schema():
                 log.info('Adding review.%s', name)
                 conn.execute(text(f'ALTER TABLE review ADD COLUMN {name} {sql_type}'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_status ON review (status)'))
-        report_columns = {c['name'] for c in inspect(db.engine).get_columns('report')}
+        report_columns = {c['name'] for c in inspect(engine).get_columns('report')}
         if 'network' not in report_columns:
             log.info('Adding report.network')
             conn.execute(text('ALTER TABLE report ADD COLUMN network VARCHAR(32)'))
+        if 'handled_at' not in report_columns:
+            log.info('Adding report.handled_at')
+            conn.execute(text('ALTER TABLE report ADD COLUMN handled_at TIMESTAMP WITH TIME ZONE'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_professor_id ON review (professor_id)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_created_at ON review (created_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_client_hash ON review (client_hash)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_review_ai_checked_at ON review (ai_checked_at)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_school_id ON professor (school_id)'))
-        professor_columns = {c['name'] for c in inspect(db.engine).get_columns('professor')}
+        professor_columns = {c['name'] for c in inspect(engine).get_columns('professor')}
         if 'active' not in professor_columns:
             log.info('Adding professor.active')
             conn.execute(text('ALTER TABLE professor ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE'))
@@ -330,10 +396,65 @@ def upgrade_schema():
             log.info('Adding professor.opted_out')
             conn.execute(text('ALTER TABLE professor ADD COLUMN opted_out BOOLEAN NOT NULL DEFAULT FALSE'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_professor_active ON professor (active)'))
-        # The profile_request table is new, so create_all (run just before this) made it whole.
+        request_columns = {c['name'] for c in inspect(engine).get_columns('profile_request')}
+        if 'resolved_at' not in request_columns:
+            log.info('Adding profile_request.resolved_at')
+            conn.execute(text('ALTER TABLE profile_request ADD COLUMN resolved_at TIMESTAMP WITH TIME ZONE'))
+
+
+# Any fixed number: every ProfScope process asks Postgres for the same lock.
+STARTUP_LOCK_ID = 7_310_052_901
+
+
+@contextmanager
+def startup_lock(engine):
+    """One process at a time runs the schema upgrade and the faculty sync (no-op on SQLite).
+
+    Two instances starting together (a rolling deploy, several replicas) would otherwise both
+    add the same new professors, or both run the same ALTER TABLE.
+    """
+    if engine.dialect.name != 'postgresql':
+        yield
+        return
+    with engine.connect() as conn:
+        conn.execute(text('SELECT pg_advisory_lock(:key)'), {'key': STARTUP_LOCK_ID})
+        conn.commit()  # the lock belongs to the session and outlives the transaction
+        try:
+            yield
+        finally:
+            conn.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': STARTUP_LOCK_ID})
+            conn.commit()
+
+
+def purge_personal_data(now=None):
+    """Erase the email and message of removal requests resolved more than PERSONAL_DATA_DAYS ago.
+
+    The email is already cleared when a request is resolved; this also covers requests resolved
+    before that rule existed (they have no resolved_at, so their creation date is used).
+    Returns the number of requests cleaned.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=PERSONAL_DATA_DAYS)
+    stale = ProfileRequest.query.filter(
+        ProfileRequest.status != PROFILE_REQUEST_OPEN,
+        func.coalesce(ProfileRequest.resolved_at, ProfileRequest.created_at) < cutoff,
+        (ProfileRequest.contact.isnot(None)) | (ProfileRequest.message != ''),
+    ).all()
+    for found in stale:
+        found.contact = None
+        found.message = ''
+    db.session.commit()
+    if stale:
+        log.info('Erased personal data of %s resolved removal requests', len(stale))
+    return len(stale)
 
 
 def init_db(seed_if_empty=True, sync=True):
+    with startup_lock(db.engine):
+        _init_db(seed_if_empty, sync)
+
+
+def _init_db(seed_if_empty, sync):
     db.create_all()
     upgrade_schema()
     if seed_if_empty and db.session.query(School.id).first() is None:
@@ -485,6 +606,9 @@ def create_app(config=None):
     if RATELIMIT_STORAGE_URI == 'memory://' and not app.config.get('TESTING'):
         log.warning('Rate limits are kept in memory: they reset on restart and are per process. '
                     'Set RATELIMIT_STORAGE_URI (e.g. a Redis URL) in production.')
+    elif not app.config.get('TESTING'):
+        # The scheme only (e.g. 'redis'): the URI itself carries a password.
+        log.info('Rate limits are shared through %s storage', RATELIMIT_STORAGE_URI.split(':', 1)[0])
 
     with app.app_context():
         init_db(seed_if_empty=app.config['SEED_IF_EMPTY'], sync=app.config['SYNC_FACULTY'])
@@ -502,19 +626,26 @@ def create_app(config=None):
         target = os.environ.get('BACKUP_DATABASE_URL')
         if not target:
             raise SystemExit('BACKUP_DATABASE_URL is not set')
+        # The nightly job is also the daily clean-up, so expired personal data never reaches a snapshot.
+        print('Personal data erased from', purge_personal_data(), 'resolved removal requests')
         print('Backed up:', backup(app.config['SQLALCHEMY_DATABASE_URI'], target))
 
     @app.cli.command('restore-from-backup')
     @click.option('--yes', is_flag=True, help='Confirm replacing the live data with the backup.')
     def restore_command(yes):
-        """Replace the live database with the last backup. Destructive: needs --yes."""
-        from backup import backup
+        """Replace the live database with the newest complete backup snapshot. Destructive: needs --yes."""
+        from backup import restore
         source = os.environ.get('BACKUP_DATABASE_URL')
         if not source:
             raise SystemExit('BACKUP_DATABASE_URL is not set')
         if not yes:
             raise SystemExit('This replaces all live data with the backup. Re-run with --yes.')
-        print('Restored:', backup(source, app.config['SQLALCHEMY_DATABASE_URI']))
+        print('Restored:', restore(source, app.config['SQLALCHEMY_DATABASE_URI']))
+
+    @app.cli.command('purge-personal-data')
+    def purge_personal_data_command():
+        """Erase the email and message of removal requests resolved over 30 days ago."""
+        print('Personal data erased from', purge_personal_data(), 'resolved removal requests')
 
     @app.cli.command('init-db')
     def init_db_command():
@@ -550,9 +681,10 @@ def create_app(config=None):
         # shared cache and handed to everyone.
         # Pages and review/report posts only: API reads stay cookie-free so they can be cached.
         wants_cookie = response.mimetype == 'text/html' or (request.method == 'POST' and request.path.startswith('/api/reviews'))
-        if wants_cookie and not is_client_token(request.cookies.get(CLIENT_COOKIE, '')):
+        # A missing, forged or unsigned value is replaced with a freshly signed one.
+        if wants_cookie and client_id() is None:
             response.set_cookie(
-                CLIENT_COOKIE, secrets.token_hex(16), max_age=CLIENT_COOKIE_MAX_AGE,
+                CLIENT_COOKIE, issue_client_token(), max_age=CLIENT_COOKIE_MAX_AGE,
                 secure=request.is_secure, httponly=True, samesite='Lax',
             )
         return response
@@ -625,6 +757,18 @@ def create_app(config=None):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Something went wrong on our side. Please try again.'}), 500
         return 'Something went wrong on our side. Please try again.', 500
+
+    @app.route('/healthz')
+    @limiter.exempt
+    def healthz():
+        """For the host's health check: is the database answering? Nothing else is told."""
+        try:
+            db.session.execute(text('SELECT 1'))
+        except SQLAlchemyError:
+            db.session.rollback()
+            log.exception('Health check: database unreachable')
+            return jsonify({'ok': False}), 503
+        return jsonify({'ok': True})
 
     @app.route('/')
     def index():
@@ -868,6 +1012,31 @@ def create_app(config=None):
             'professor': {'name': r.professor.name, 'url': professor_path(r.professor), 'school': r.professor.school.code},
         } for r in reviews])
 
+    @app.route('/api/reviews/<int:review_id>/status', methods=['GET'])
+    # No limit of its own, like the other public reads: one indexed lookup, and the author's page
+    # polls it at 5 s, then 15 s, then 60 s.
+    def review_status(review_id):
+        """What happened to the visitor's own review, so the page can stop waiting for it.
+
+        Only the browser that wrote the review learns anything: for anyone else, a review that
+        exists and one that does not both answer 404.
+        """
+        review = db.session.get(Review, review_id)
+        device = device_hash()
+        if review is None or device is None or not review.client_hash \
+                or not hmac.compare_digest(review.client_hash, device):
+            return jsonify({'error': 'Review not found'}), 404
+        if review.professor.opted_out:
+            # The profile was taken off the site: the review will not be shown.
+            status = 'hidden'
+        else:
+            status = {REVIEW_AWAITING: 'awaiting', REVIEW_PUBLISHED: 'published',
+                      REVIEW_PENDING: 'pending', REVIEW_HIDDEN: 'hidden'}.get(review.status, 'hidden')
+        response = jsonify({'status': status})
+        # Per browser: never cached, by the browser or by anything in between.
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.route('/api/reviews/<int:review_id>/report', methods=['POST'])
     @limiter.limit('30 per hour;100 per day', deduct_when=created)
     @limiter.limit('20 per day', key_func=device_key, deduct_when=created)
@@ -888,14 +1057,24 @@ def create_app(config=None):
         db.session.flush()
         # Cookies are free to forge, networks are not: hide automatically only when the reports
         # come from several networks. Reports from one network still reach the moderation queue.
+        # Reports a moderator already handled no longer count.
         networks = (
             db.session.query(func.count(func.distinct(Report.network)))
-            .filter(Report.review_id == review.id, Report.network.isnot(None))
+            .filter(Report.review_id == review.id, Report.network.isnot(None), Report.handled_at.is_(None))
             .scalar()
         )
-        if networks >= REPORTS_TO_HIDE:
+        if reason == FACULTY_REQUEST:
+            # The professor asks: hidden at once, and off the AI's queue, so only a person can bring it back.
             review.status = REVIEW_PENDING
-            log.info('Review %s hidden for moderation after reports from %s networks', review.id, networks)
+            review.ai_verdict, review.ai_reason = None, None
+            review.ai_checked_at = datetime.now(timezone.utc)
+            log.info('Review %s hidden at a faculty request until a moderator decides', review.id)
+        elif networks >= REPORTS_TO_HIDE:
+            # Hidden, and back on the AI's queue: networks are cheap to switch, so one person could
+            # get here alone. An AI "ok" brings the review back without waiting for a person.
+            review.status = REVIEW_PENDING
+            review.ai_verdict, review.ai_reason, review.ai_checked_at = None, None, None
+            log.info('Review %s hidden for a re-check after reports from %s networks', review.id, networks)
         db.session.commit()
         return jsonify({'success': True}), 202
 
@@ -947,6 +1126,11 @@ def create_app(config=None):
         # The AI moderator has its own token, so the full admin token never leaves the server.
         bearer_matches('MODERATOR_TOKEN', 'ADMIN_TOKEN')
 
+    def handle_reports(review):
+        """A decision was made on this review: its reports so far stop counting toward hiding it."""
+        Report.query.filter(Report.review_id == review.id, Report.handled_at.is_(None)) \
+            .update({Report.handled_at: datetime.now(timezone.utc)}, synchronize_session=False)
+
     def ban_review_author(review, reason, source):
         if not review.client_hash:
             return None
@@ -958,7 +1142,7 @@ def create_app(config=None):
         db.session.add(ban)
         return ban
 
-    def admin_review(r):
+    def admin_review(r, bursts=()):
         reasons = {}
         for report in r.reports:
             reasons[report.reason] = reasons.get(report.reason, 0) + 1
@@ -966,9 +1150,28 @@ def create_app(config=None):
             'id': r.id, 'text': r.text, 'rating': r.rating, 'status': r.status,
             'report_count': r.report_count, 'reasons': reasons, 'created_at': iso(r.created_at),
             'course_code': r.course_code,
-            'professor': {'id': r.professor.id, 'name': r.professor.name},
+            'professor': {'id': r.professor.id, 'name': r.professor.name, 'burst': r.professor_id in bursts},
             'ai_verdict': r.ai_verdict, 'ai_reason': r.ai_reason,
         }
+
+    def rating_bursts():
+        """{professor_id: most rating-only reviews from one network} for professors with a burst.
+
+        BURST_REVIEWS or more bare ratings of one professor from one network within BURST_HOURS
+        may be a pile-on, or just a class on the campus Wi-Fi: a person looks, nothing is blocked.
+        """
+        since = datetime.now(timezone.utc) - timedelta(hours=BURST_HOURS)
+        rows = (
+            db.session.query(Review.professor_id, func.count(Review.id))
+            .filter(Review.text == '', Review.network.isnot(None), Review.created_at >= since)
+            .group_by(Review.professor_id, Review.network)
+            .having(func.count(Review.id) >= BURST_REVIEWS)
+            .all()
+        )
+        found = {}
+        for prof_id, count in rows:
+            found[prof_id] = max(found.get(prof_id, 0), count)
+        return found
 
     @app.route('/api/admin/reviews', methods=['GET'])
     @limiter.limit('60 per minute')
@@ -997,10 +1200,15 @@ def create_app(config=None):
             .limit(50)
             .all()
         )
+        found = rating_bursts()
+        names = dict(db.session.query(Professor.id, Professor.name).filter(Professor.id.in_(found))) if found else {}
         return jsonify({
-            'awaiting': [admin_review(r) for r in awaiting],
-            'flagged': [admin_review(r) for r in flagged],
-            'recent': [admin_review(r) for r in recent],
+            'awaiting': [admin_review(r, found) for r in awaiting],
+            'flagged': [admin_review(r, found) for r in flagged],
+            'recent': [admin_review(r, found) for r in recent],
+            # Professors with a burst of rating-only reviews from one network (see rating_bursts).
+            'bursts': [{'professor': {'id': pid, 'name': names.get(pid)}, 'reviews': n,
+                        'hours': BURST_HOURS} for pid, n in sorted(found.items())],
         })
 
     @app.route('/api/admin/reviews/<int:review_id>', methods=['POST'])
@@ -1013,9 +1221,11 @@ def create_app(config=None):
         if action in ('publish', 'hide', 'ban') and review.ai_checked_at is None:
             # A person decided: the AI moderator must not take the review up again and overrule them.
             review.ai_checked_at = datetime.now(timezone.utc)
+        if action in ('publish', 'hide', 'ban'):
+            handle_reports(review)  # past reports were looked at; only new ones count again
         if action == 'publish':
             review.status = REVIEW_PUBLISHED
-            review.report_count = 0  # past reports were looked at; only new ones count again
+            review.report_count = 0
         elif action == 'hide':
             review.status = REVIEW_HIDDEN
         elif action == 'delete':
@@ -1038,13 +1248,13 @@ def create_app(config=None):
     def moderation_queue():
         require_moderator()
         limit = min(max(request.args.get('limit', 10, type=int), 1), 50)
-        # New reviews waiting to go up first, oldest first; then reviews published before
-        # pre-moderation that nobody has read yet.
+        # New reviews waiting to go up first, oldest first; then reviews hidden by reports, for a
+        # re-check; then reviews published before pre-moderation that nobody has read yet.
         reviews = (
             Review.query.options(joinedload(Review.professor).joinedload(Professor.school))
-            .filter(Review.status.in_((REVIEW_AWAITING, REVIEW_PUBLISHED)), Review.ai_checked_at.is_(None),
-                    Review.text != '')
-            .order_by(case((Review.status == REVIEW_AWAITING, 0), else_=1), Review.id)
+            .filter(Review.status.in_(AI_QUEUE_STATUSES), Review.ai_checked_at.is_(None), Review.text != '')
+            .order_by(case((Review.status == REVIEW_AWAITING, 0), (Review.status == REVIEW_PENDING, 1), else_=2),
+                      Review.id)
             .limit(limit)
             .all()
         )
@@ -1062,20 +1272,23 @@ def create_app(config=None):
             return jsonify({'error': 'verdict must be "ok" or "remove"'}), 400
         reason = str(data.get('reason') or '')[:AI_REASON_MAX]
         review = db.session.get(Review, review_id) or abort(404)
-        if review.ai_checked_at is not None and review.ai_verdict is None:
-            # A person decided while the AI was still reading it: theirs is the decision that stands.
+        if review.ai_checked_at is not None or review.status not in AI_QUEUE_STATUSES:
+            # Only reviews on the queue take a verdict. Otherwise a person decided (perhaps while the
+            # AI was still reading it) or the AI already did, and that decision stands: a leaked
+            # moderator token cannot overrule it. Answered as a success so the moderator moves on.
             return jsonify({'success': True, 'banned': False})
         review.ai_verdict = data['verdict']
         review.ai_reason = reason or None
         review.ai_checked_at = datetime.now(timezone.utc)
         banned = False
         if data['verdict'] == 'ok':
-            if review.status == REVIEW_AWAITING:
-                review.status = REVIEW_PUBLISHED
+            if review.status == REVIEW_PENDING:
+                # Reports hid it and the AI found nothing wrong: back up, and those reports are spent.
+                handle_reports(review)
+            review.status = REVIEW_PUBLISHED
         else:
             # Hidden, not deleted: a person can restore it from /admin.html if the AI was wrong.
-            if review.status in (REVIEW_AWAITING, REVIEW_PUBLISHED):
-                review.status = REVIEW_HIDDEN
+            review.status = REVIEW_HIDDEN
             if data.get('ban') is True:
                 banned = ban_review_author(review, f'AI: {reason}', 'ai') is not None
         db.session.commit()
@@ -1138,16 +1351,21 @@ def create_app(config=None):
         data = request.get_json(silent=True)
         action = data.get('action') if isinstance(data, dict) else None
         found = db.session.get(ProfileRequest, request_id) or abort(404)
+        now = datetime.now(timezone.utc)
         if action == 'remove_profile':
             found.professor.opted_out = True
             # One removal answers every open request about the same profile.
             ProfileRequest.query.filter_by(professor_id=found.professor_id, status=PROFILE_REQUEST_OPEN) \
-                .update({ProfileRequest.status: PROFILE_REQUEST_DONE})
+                .update({ProfileRequest.status: PROFILE_REQUEST_DONE, ProfileRequest.contact: None,
+                         ProfileRequest.resolved_at: now}, synchronize_session='fetch')
             found.status = PROFILE_REQUEST_DONE
         elif action == 'dismiss':
             found.status = PROFILE_REQUEST_DISMISSED
         else:
             return jsonify({'error': 'Unknown action'}), 400
+        # Resolved: the reply address is no longer needed (the message goes after PERSONAL_DATA_DAYS).
+        found.contact = None
+        found.resolved_at = found.resolved_at or now
         db.session.commit()
         log.info('Moderator %s on profile request %s (professor %s)', action, request_id, found.professor_id)
         return jsonify({'success': True})

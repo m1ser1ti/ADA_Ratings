@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <script src="/js/theme-init.js"></script>
   <title>Privacy · ProfScope</title>
   <meta name="description" content="What ProfScope stores, what it does not, and why.">
@@ -104,25 +104,36 @@
         <h1>Privacy</h1>
         <p class="prose-lead">There are no accounts on ProfScope, and reviews carry no names. Here is everything the site keeps.</p>
 
+        <h2>Who runs ProfScope</h2>
+        <p>ProfScope is run by a group of students. Contact: <a href="mailto:profscope.contact@gmail.com">profscope.contact@gmail.com</a>.</p>
+
         <h2>What we store</h2>
         <ul>
-          <li><strong>Your review:</strong> the rating, the optional text and details, and the date. No name, email or IP address is saved with it.</li>
-          <li><strong>Two one-way codes with each review:</strong> one derived from your browser’s random cookie and one from your network. They cannot be turned back into the cookie or your address. They are used only to enforce the rules: if a review breaks them badly, the browser that posted it can be blocked.</li>
-          <li><strong>Profile removal requests from faculty:</strong> the message and, if given, a contact email, kept until the request is handled.</li>
-          <li><strong>Blocks:</strong> the one-way browser code of a blocked browser, the reason and the date.</li>
-          <li><strong>Reports:</strong> which review was reported, the reason, the date, and a one-way code derived from your network. The code cannot be turned back into your address; it only lets us tell whether reports came from several different networks.</li>
+          <li><strong>Your review:</strong> the rating, the optional text, course code, difficulty and tags, and the date. No name, email or IP address is saved with it.</li>
+          <li><strong>Two keyed codes with each review:</strong> one made from your browser’s random cookie and one from your network address. Each is a keyed hash: it cannot be read back into the cookie or the address without the server’s secret key. Whoever holds that key could check whether a given address or browser posted a review. The codes are used only to enforce the rules, for example to block a browser that breaks them.</li>
+          <li><strong>Profile removal requests from faculty:</strong> the message and, if given, a contact email.</li>
+          <li><strong>Blocks:</strong> the keyed code of a blocked browser, the reason, who made the block (a moderator or the AI moderator) and the date.</li>
+          <li><strong>Reports:</strong> which review was reported, the reason, the date, and a keyed code of your network. It only lets us tell whether reports came from several different networks.</li>
+        </ul>
+
+        <h2>How long we keep it</h2>
+        <ul>
+          <li><strong>Reviews</strong> are kept while they are published or hidden. A moderator can delete a review, and you can ask for yours to be removed (see below).</li>
+          <li><strong>Removal requests:</strong> while a request is open we keep the message and the contact email. The email is erased as soon as the request is resolved. The message is erased 30 days after it is resolved.</li>
+          <li><strong>Backups:</strong> we keep nightly copies of the database, 7 at a time. A copy of erased data can therefore stay in a backup for at most 7 more days.</li>
         </ul>
 
         <h2>Cookies</h2>
         <p>The site sets two cookies, both needed for it to work:</p>
         <ul>
-          <li><code>ada_client</code>: a random code that limits how many reviews one browser can post and lets a rule-breaking browser be blocked. It expires after a year.</li>
-          <li><code>ada_rules</code>: remembers that you accepted the review rules, so the rules screen does not show on every visit.</li>
+          <li><code>profscope_client</code>: a random code, signed by the server so it cannot be forged. It limits how many reviews one browser can post and lets a rule-breaking browser be blocked. It cannot be read by scripts on the page and expires after a year.</li>
+          <li><code>profscope_rules</code>: remembers that you accepted the review rules, so the rules screen does not show on every visit.</li>
         </ul>
         <p>Clearing your cookies removes both.</p>
 
         <h2>Moderation</h2>
-        <p>Published reviews are checked by an AI model that runs on a moderator’s own computer. Review text is not sent to outside AI companies. Only the review and the professor’s name are checked, never any code that relates to you.</p>
+        <p>Reviews with text are checked by an AI model that runs on a moderator’s own computer, before they appear to other people. A rating without text appears at once. Three reports from different networks hide a review until a moderator or the AI checks it again. A removal request from a professor hides that review at once until a moderator decides. Review text is not sent to outside AI companies. Only the review text, course code, tags and the professor’s name are checked, never any code that relates to you.</p>
+        <p>When a review breaks the rules, moderators can block the browser it was posted from. Blocks can be lifted.</p>
 
         <h2>Your network address</h2>
         <p>Your IP address is used only to apply the same limits and is never stored with reviews or reports. Our hosting provider may keep standard request logs for a short time.</p>
@@ -131,7 +142,17 @@
         <p>To keep search fast, the professor list is kept in your browser for a few minutes. Reviews you have reported are remembered in your browser so the Report button does not show again.</p>
 
         <h2>Questions and removal requests</h2>
-        <p>Write to <a href="mailto:profscope.contact@gmail.com">profscope.contact@gmail.com</a>. You can ask what is stored and ask for it to be removed.</p>
+        <p>Write to <a href="mailto:profscope.contact@gmail.com">profscope.contact@gmail.com</a>. You can ask what is stored and ask for it to be removed. We aim to act on removal and personal-data requests within 48 hours.</p>
+
+        <h2 id="authorities">Requests from authorities</h2>
+        <p>We answer only written requests delivered through formal legal process and, where the law allows it, we tell the person concerned. The data we hold is:</p>
+        <ul>
+          <li>review text, rating, course code, and optional difficulty and tags;</li>
+          <li>browser and network codes in the keyed form described above;</li>
+          <li>ban records;</li>
+          <li>removal requests and the optional contact email.</li>
+        </ul>
+        <p>We do not store names, accounts or IP addresses with reviews.</p>
 
         <h2>Other services</h2>
         <p>No third-party images or fonts are loaded. Professors are shown with initials instead of photos, and every font and graphic is served from this site, so no other site sees a request from your browser.</p>
@@ -177,7 +198,7 @@
         </nav>
       </div>
       <div class="footer-bottom">
-        <p>© <span data-year></span> ProfScope · An unofficial student project, not affiliated with ADA University.</p>
+        <p>© <span data-year></span> ProfScope · An unofficial student project, not affiliated with any university.</p>
         <p>Reviews reflect students’ personal opinions. Contact: <a href="mailto:profscope.contact@gmail.com">profscope.contact@gmail.com</a></p>
       </div>
     </div>

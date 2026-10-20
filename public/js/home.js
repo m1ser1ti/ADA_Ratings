@@ -1,5 +1,5 @@
 import {
-  allProfessors, api, emptyState, errorState, escapeHtml, focusHeroSearch, formatDate, plural, professorCard, ratingBadge,
+  allProfessors, api, emptyState, errorState, escapeHtml, focusHeroSearch, formatDate, plural, professorCard, ratingBadge, sitePath,
   schoolUrl, skeletons,
 } from './common.js';
 import { schoolArtAttrs, schoolIcon } from './schools.js';
@@ -109,7 +109,7 @@ async function loadRecent() {
           ${r.created_at ? `<time datetime="${escapeHtml(r.created_at)}">${escapeHtml(formatDate(r.created_at))}</time>` : ''}
         </div>
         ${r.text ? `<p class="recent-text">${escapeHtml(r.text)}</p>` : '<p class="recent-text recent-empty">Rated without a written review.</p>'}
-        <a class="recent-prof" href="${escapeHtml(r.professor.url)}">
+        <a class="recent-prof" href="${escapeHtml(sitePath(r.professor.url))}">
           <span>${escapeHtml(r.professor.name)}</span>
           <span class="recent-school">${escapeHtml(r.professor.school)}</span>
         </a>

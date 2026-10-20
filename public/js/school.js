@@ -57,16 +57,21 @@ function renderList() {
   grid.innerHTML = shown.map(professorCard).join('');
 }
 
-// School-wide numbers for the hero; the average weights each professor by review count.
+// School-wide numbers for the hero; the average weights each rated professor by review count.
 function renderStats() {
   const reviews = professors.reduce((sum, p) => sum + p.review_count, 0);
-  const weighted = professors.reduce((sum, p) => sum + (p.avg_rating ?? 0) * p.review_count, 0);
-  const set = (key, value) => {
-    document.querySelector(`[data-school-stat="${key}"]`).textContent = value;
+  const rated = professors.filter(p => p.avg_rating != null && p.review_count > 0);
+  const ratedReviews = rated.reduce((sum, p) => sum + p.review_count, 0);
+  const weighted = rated.reduce((sum, p) => sum + p.avg_rating * p.review_count, 0);
+  const set = (key, value, label) => {
+    const strong = document.querySelector(`[data-school-stat="${key}"]`);
+    strong.textContent = value;
+    if (label && strong.nextElementSibling) strong.nextElementSibling.textContent = label;
   };
-  set('professors', professors.length.toLocaleString('en-US'));
-  set('reviews', reviews.toLocaleString('en-US'));
-  set('avg', reviews ? `${(weighted / reviews).toFixed(1)} / 10` : '—');
+  set('professors', professors.length.toLocaleString('en-US'), professors.length === 1 ? 'Professor' : 'Professors');
+  set('reviews', reviews.toLocaleString('en-US'), reviews === 1 ? 'Review' : 'Reviews');
+  if (ratedReviews) set('avg', `${(weighted / ratedReviews).toFixed(1)} / 10`, 'Average rating');
+  else set('avg', 'No ratings yet', 'Average rating');
   document.getElementById('school-stats').hidden = false;
 }
 

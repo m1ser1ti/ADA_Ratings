@@ -54,6 +54,13 @@ REPORT_REASONS = ('personal_attack', 'false_information', 'spam', 'faculty_reque
 RULES_COOKIE = 'profscope_rules'
 RULES_VERSION = '2'
 AI_REASON_MAX = 300
+# What a visitor reads when a review limit stops them; the API also returns the key as `code`.
+LIMIT_MESSAGES = {
+    'network_busy': 'Lots of reviews are coming from your network right now. Please try again in a little while.',
+    'too_many_reviews': 'You have written a lot of reviews in a short time. Please take a short break and try again.',
+    'already_reviewed': 'You have already reviewed this professor today.',
+    'professor_busy': 'This professor is getting a lot of reviews right now. Please try again later.',
+}
 RECENT_EXCERPT = 240
 # Keys are stored and sent to the client; the page shows its own labels for them.
 REVIEW_TAGS = (
@@ -746,6 +753,11 @@ def create_app(config=None):
     def api_http_error(err):
         if not request.path.startswith('/api/'):
             return err
+        if err.code == 429:
+            # A review limit says which one was hit; any other limit gets the generic line.
+            code = next((key for key, text in LIMIT_MESSAGES.items() if text == err.description), None)
+            if code:
+                return jsonify({'error': err.description, 'code': code}), 429
         messages = {429: 'Too many requests, please try again later', 413: 'Request is too large',
                     401: 'Unauthorized', 404: 'Not found', 405: 'Method not allowed'}
         return jsonify({'error': messages.get(err.code, err.description)}), err.code
@@ -929,12 +941,15 @@ def create_app(config=None):
 
     @app.route('/api/reviews', methods=['POST'])
     # Per network: generous, since a whole campus can sit behind one address.
-    @limiter.limit('60 per hour;300 per day')
-    # Per device: the real per-person limits.
-    @limiter.limit('5 per hour;20 per day', key_func=device_key, deduct_when=created)
-    @limiter.limit('1 per day', key_func=review_rate_key, deduct_when=created)
-    # Per professor, from everyone together.
-    @limiter.limit('20 per hour', key_func=professor_rate_key, deduct_when=created)
+    @limiter.limit('150 per hour;600 per day', error_message=LIMIT_MESSAGES['network_busy'])
+    # Per device: room to review a whole semester of courses in one sitting.
+    @limiter.limit('40 per hour;100 per day', key_func=device_key, deduct_when=created,
+                   error_message=LIMIT_MESSAGES['too_many_reviews'])
+    @limiter.limit('1 per day', key_func=review_rate_key, deduct_when=created,
+                   error_message=LIMIT_MESSAGES['already_reviewed'])
+    # Per professor, from everyone together: what stops a flood against one person.
+    @limiter.limit('20 per hour', key_func=professor_rate_key, deduct_when=created,
+                   error_message=LIMIT_MESSAGES['professor_busy'])
     def add_review():
         data = request.get_json(silent=True)
         if not isinstance(data, dict):

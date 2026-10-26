@@ -172,21 +172,33 @@ def test_one_review_per_professor_per_client(client, prof_id):
     assert post_review(client, professor_id=prof_id).status_code == 201
     res = post_review(client, professor_id=prof_id)
     assert res.status_code == 429
-    assert 'error' in res.get_json()
+    assert res.get_json()['code'] == 'already_reviewed'
+    assert res.get_json()['error'] == 'You have already reviewed this professor today.'
 
 
-def test_hourly_limit_across_professors(client, app):
+def add_professors(app, count):
     from models import Professor
     from extensions import db
     with app.app_context():
         school_id = Professor.query.first().school_id
-        extra = [Professor(name=f'Prof {i}', school_id=school_id) for i in range(5)]
-        db.session.add_all(extra)
+        db.session.add_all([Professor(name=f'Prof {i}', school_id=school_id) for i in range(count)])
         db.session.commit()
-        ids = [p.id for p in Professor.query.all()]
-    codes = [post_review(client, professor_id=i).status_code for i in ids[:6]]
-    assert codes[:5] == [201] * 5
-    assert codes[5] == 429
+        return [p.id for p in Professor.query.all()]
+
+
+def test_a_student_can_review_a_whole_semester_in_one_sitting(client, app):
+    ids = add_professors(app, 30)
+    codes = [post_review(client, professor_id=i).status_code for i in ids[:25]]
+    assert codes == [201] * 25
+
+
+def test_hourly_limit_across_professors(client, app):
+    ids = add_professors(app, 45)
+    codes = [post_review(client, professor_id=i).status_code for i in ids[:41]]
+    assert codes[:40] == [201] * 40
+    assert codes[40] == 429
+    res = post_review(client, professor_id=ids[41])
+    assert res.get_json()['code'] == 'too_many_reviews'
 
 
 def test_security_headers_and_no_open_cors(client):
@@ -233,6 +245,8 @@ def test_professor_wide_cap_stops_a_pile_on(app, prof_id):
         codes.append(post_review(new_browser(app), professor_id=prof_id).status_code)
     assert codes[:20] == [201] * 20
     assert codes[20] == 429
+    res = post_review(new_browser(app), professor_id=prof_id)
+    assert res.get_json()['code'] == 'professor_busy'
 
 
 @pytest.mark.parametrize('length, status', [(1, 201), (5000, 201), (5001, 400)])

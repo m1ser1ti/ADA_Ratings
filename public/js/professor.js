@@ -1088,7 +1088,8 @@ function setFieldError(id, message, fields) {
 function submitErrorMessage(err) {
   if (err.code === 'rules_required') return 'Please accept the site rules, then press Submit again.';
   if (err.code === 'profile_removed') return err.message;
-  if (err.status === 429) return 'Too many reviews from your network right now. Please try again later.';
+  // Review limits come with their own message (already reviewed today, a short break, and so on).
+  if (err.status === 429) return err.code ? err.message : 'Too many reviews right now. Please try again later.';
   return err.message || 'Could not submit your review. Please try again.';
 }
 

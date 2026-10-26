@@ -86,6 +86,14 @@ async function loadProfessors() {
     professors = await api(`/api/professors?school=${encodeURIComponent(code)}`);
   } catch (err) {
     if (err.status === 404) {
+      // No school here: no filter bar and no made-up name above the message.
+      document.getElementById('prof-toolbar')?.setAttribute('hidden', '');
+      document.getElementById('school-name').textContent = 'School not found';
+      document.getElementById('crumb-school').textContent = 'Not found';
+      document.getElementById('hero-mark').textContent = '';
+      document.getElementById('school-code').textContent = '';
+      document.getElementById('school-stats').hidden = true;
+      document.title = 'School not found · ProfScope';
       grid.innerHTML = emptyState('School not found', 'There is no school at this address.');
     } else {
       errorState(grid, 'Could not load professors. Check your connection and try again.', loadProfessors);

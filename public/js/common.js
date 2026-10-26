@@ -491,13 +491,23 @@ function setupNavMenu(button) {
   const wrap = button.closest('.nav-menu');
   if (!panel || !wrap) return;
   let hoverTimer;
+  let hoverOpenedAt = 0;
   const setOpen = open => {
     panel.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
   };
-  button.addEventListener('click', () => setOpen(panel.hidden));
+  // A mouse opens the menu on hover a moment before the click lands; that click must not close it.
+  button.addEventListener('click', () => {
+    if (!panel.hidden && Date.now() - hoverOpenedAt < 700) return;
+    setOpen(panel.hidden);
+  });
   const canHover = window.matchMedia('(hover: hover) and (pointer: fine)');
-  wrap.addEventListener('mouseenter', () => { if (canHover.matches) { clearTimeout(hoverTimer); setOpen(true); } });
+  wrap.addEventListener('mouseenter', () => {
+    if (!canHover.matches) return;
+    clearTimeout(hoverTimer);
+    if (panel.hidden) hoverOpenedAt = Date.now();
+    setOpen(true);
+  });
   wrap.addEventListener('mouseleave', () => { if (canHover.matches) hoverTimer = setTimeout(() => setOpen(false), 160); });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !panel.hidden) { setOpen(false); button.focus(); }

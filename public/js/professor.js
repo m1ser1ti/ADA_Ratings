@@ -188,6 +188,11 @@ function leaveAwaiting(fresh) {
     const note = 'This review was not published. You can write a new one.';
     const status = document.getElementById('form-status');
     if (status) { status.className = 'status error'; status.textContent = note; }
+    // On phones and tablets the form (and its status line) sits in the closed sheet, so the
+    // note also goes where the waiting review was; otherwise it would just vanish.
+    if (sheetMode.matches && list) {
+      list.insertAdjacentHTML('afterbegin', `<li class="review" data-notice><p class="review-empty review-empty--note">${note}</p></li>`);
+    }
     announce(note);
   }
 }

@@ -517,6 +517,13 @@ def test_professor_page_redirects_to_its_canonical_slug(client, prof_id):
         assert res.headers['Location'].endswith(f'/professor/{prof_id}-ada-lovelace')
 
 
+def test_slug_redirect_keeps_the_query_string(client, prof_id):
+    # /professor/<id>?rate=1 opens the review form, so the redirect must not drop it.
+    res = client.get(f'/professor/{prof_id}?rate=1')
+    assert res.status_code == 301
+    assert res.headers['Location'].endswith(f'/professor/{prof_id}-ada-lovelace?rate=1')
+
+
 def test_unknown_pages_are_real_404s_and_not_indexed(client):
     for path in ('/professor/999999-nobody', '/school/NOPE'):
         res = client.get(path)
@@ -1647,3 +1654,13 @@ def test_old_domain_shows_moved_notice(monkeypatch):
     assert old.get('/style.css', base_url='https://www.adaratings.example').status_code == 200
     assert old.get('/api/schools', base_url='https://www.adaratings.example').status_code == 200
     assert 'now ProfScope' not in old.get('/', base_url='https://www.profscope.example').get_data(as_text=True)
+
+
+def test_unknown_page_gets_the_site_404_page(client):
+    res = client.get('/no-such-page')
+    assert res.status_code == 404 and res.mimetype == 'text/html'
+    html = res.get_data(as_text=True)
+    assert 'Page not found' in html and 'site-header' in html and 'noindex' in html
+    # Missing files and API paths keep their plain answers.
+    assert 'Page not found' not in client.get('/img/no-such-file.png').get_data(as_text=True)
+    assert client.get('/api/no-such-thing').get_json()['error'] == 'Not found'

@@ -752,6 +752,11 @@ def create_app(config=None):
     @app.errorhandler(HTTPException)
     def api_http_error(err):
         if not request.path.startswith('/api/'):
+            # A missing page gets the site's own 404 page; a missing file (image, font) stays a bare 404.
+            last = request.path.rsplit('/', 1)[-1]
+            if err.code == 404 and request.method in ('GET', 'HEAD') and ('.' not in last or last.endswith('.html')):
+                return render_page(app, '404.html', meta_tags('Page not found · ProfScope', DEFAULT_DESCRIPTION,
+                                                              request.path, noindex=True), status=404)
             return err
         if err.code == 429:
             # A review limit says which one was hit; any other limit gets the generic line.
@@ -816,7 +821,9 @@ def create_app(config=None):
             meta = meta_tags('Profile removed · ProfScope', PROFILE_REMOVED, request.path, noindex=True)
             return render_page(app, 'professor.html', meta, status=410)
         if request.path != professor_path(p):
-            return redirect(professor_path(p), 301)
+            # The query string rides along: /professor/26?rate=1 must still open the review form.
+            query = request.query_string.decode('utf-8', 'replace')
+            return redirect(professor_path(p) + (f'?{query}' if query else ''), 301)
         avg, count = rating_stats_for(p.id)
         if count >= MIN_REVIEWS_FOR_AVERAGE:
             rating = f'Rated {avg:g}/10 from {count} anonymous student reviews.'
